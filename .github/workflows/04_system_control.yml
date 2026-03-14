@@ -1,0 +1,84 @@
+name: 04 System Control (Kill Switch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Enable or disable the pipeline"
+        required: true
+        type: choice
+        options:
+          - enable
+          - disable
+      reason:
+        description: "Reason (for Discord notification)"
+        required: false
+        default: "Manual control"
+
+jobs:
+  control:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write    # Needed to update repo variables
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Apply kill switch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          REPO="${{ github.repository }}"
+          ACTION="${{ github.event.inputs.action }}"
+          REASON="${{ github.event.inputs.reason }}"
+
+          if [ "$ACTION" = "enable" ]; then
+            NEW_VALUE="true"
+            EMOJI="🟢"
+            LABEL="Enabled"
+            COLOR="3066993"
+          else
+            NEW_VALUE="false"
+            EMOJI="🔴"
+            LABEL="Disabled"
+            COLOR="15158332"
+          fi
+
+          # Update or create the repo variable
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/variables/CLIPBOT_ENABLED" \
+            -d "{\"name\":\"CLIPBOT_ENABLED\",\"value\":\"$NEW_VALUE\"}")
+
+          if [ "$HTTP_STATUS" = "404" ]; then
+            curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$REPO/actions/variables" \
+              -d "{\"name\":\"CLIPBOT_ENABLED\",\"value\":\"$NEW_VALUE\"}"
+          fi
+
+          echo "$EMOJI CLIPBOT_ENABLED set to: $NEW_VALUE"
+
+          # Discord notification
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            curl -s -X POST "$DISCORD_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"username\": \"ClipBot\",
+                \"embeds\": [{
+                  \"title\": \"$EMOJI System $LABEL\",
+                  \"color\": $COLOR,
+                  \"fields\": [
+                    {\"name\": \"State\", \"value\": \"CLIPBOT_ENABLED = \`$NEW_VALUE\`\", \"inline\": true},
+                    {\"name\": \"Reason\", \"value\": \"$REASON\", \"inline\": true},
+                    {\"name\": \"By\", \"value\": \"${{ github.actor }}\", \"inline\": true}
+                  ]
+                }]
+              }"
+          fi

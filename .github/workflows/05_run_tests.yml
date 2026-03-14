@@ -1,0 +1,33 @@
+name: 05 Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip -q
+          pip install pytest==8.3.3 pytest-mock==3.14.0 PyYAML==6.0.2 pytz==2024.2 pydantic==2.9.2 -q
+
+      - name: Run tests
+        env:
+          TEST_MODE: "true"
+          GEMINI_API_KEY: "fake-key-for-tests"
+          GROQ_API_KEY: "fake-key-for-tests"
+          YOUTUBE_CREDENTIALS: '{"client_id":"fake","client_secret":"fake","refresh_token":"fake"}'
+          DISCORD_WEBHOOK: ""
+        run: pytest tests/ -v --tb=short

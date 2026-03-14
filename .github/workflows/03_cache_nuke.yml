@@ -1,0 +1,27 @@
+name: 03 Cache Nuke (Manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  nuke:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: List caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Current caches:"
+          gh cache list --limit 100 || echo "No caches found."
+
+      - name: Delete all caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh cache delete --all || echo "No caches to delete."
+          echo "✅ All caches purged."

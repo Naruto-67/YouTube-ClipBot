@@ -1,0 +1,83 @@
+name: 01 Daily Pipeline
+
+on:
+  schedule:
+    - cron: "0 14 * * *"   # 14:00 UTC = 6 AM PT / 9 AM ET — runs before US peak hours
+  workflow_dispatch:         # Allow manual trigger any time
+
+concurrency:
+  group: clipbot-pipeline
+  cancel-in-progress: false  # Never cancel a running pipeline mid-upload
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180     # 3-hour hard cap
+
+    permissions:
+      contents: write        # Needed to commit DB dump back to repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: clipbot-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: clipbot-pip-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-liberation \
+            libopencv-dev \
+            python3-opencv
+          ffmpeg -version | head -1
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: Download caption font
+        run: python scripts/download_font.py
+
+      - name: Run ClipBot pipeline
+        env:
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CREDENTIALS:   ${{ secrets.YOUTUBE_CREDENTIALS }}
+          DISCORD_WEBHOOK:       ${{ secrets.DISCORD_WEBHOOK }}
+          CLIPBOT_ENABLED:       ${{ vars.CLIPBOT_ENABLED }}
+        run: python main.py
+
+      - name: Commit DB dump to repo
+        run: |
+          git config user.name  "clipbot-bot"
+          git config user.email "bot@clipbot.ai"
+          git add memory/clipbot.sql memory/quota_state.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: auto-state update [skip ci]"
+            for i in 1 2 3 4 5; do
+              git push && break || {
+                echo "Push conflict — rebasing (attempt $i)..."
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 5 ))
+              }
+            done
+          else
+            echo "No state changes to commit."
+          fi

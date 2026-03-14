@@ -1,0 +1,86 @@
+name: 02 Weekly Maintenance
+
+on:
+  schedule:
+    - cron: "0 10 * * 0"   # Every Sunday at 10:00 UTC
+  workflow_dispatch:
+
+jobs:
+  maintain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: clipbot-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: clipbot-pip-
+
+      - name: Install dependencies (lightweight subset)
+        run: |
+          pip install --upgrade pip -q
+          pip install \
+            google-api-python-client==2.136.0 \
+            google-auth-httplib2==0.2.0 \
+            google-auth-oauthlib==1.2.1 \
+            google-genai==1.16.0 \
+            groq==0.13.1 \
+            PyYAML==6.0.2 \
+            pytz==2024.2 \
+            requests==2.32.3 \
+            pydantic==2.9.2 -q
+
+      - name: Run token health check
+        env:
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CREDENTIALS:  ${{ secrets.YOUTUBE_CREDENTIALS }}
+          DISCORD_WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+        run: python scripts/token_health.py
+
+      - name: Run post-upload monitor
+        env:
+          YOUTUBE_CREDENTIALS:  ${{ secrets.YOUTUBE_CREDENTIALS }}
+          DISCORD_WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+        run: python scripts/post_monitor.py
+
+      - name: Run storage maintenance
+        env:
+          DISCORD_WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+        run: python scripts/maintenance.py
+
+      - name: Commit updated DB dump
+        run: |
+          git config user.name  "clipbot-bot"
+          git config user.email "bot@clipbot.ai"
+          git add memory/clipbot.sql memory/quota_state.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: weekly maintenance [skip ci]"
+            for i in 1 2 3 4 5; do
+              git push && break || {
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 5 ))
+              }
+            done
+          fi
