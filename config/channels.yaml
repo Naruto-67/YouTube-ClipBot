@@ -1,0 +1,30 @@
+# config/channels.yaml
+# ─────────────────────────────────────────────────────────────
+# YOUR UPLOAD CHANNEL (the channel you own and upload to)
+# ─────────────────────────────────────────────────────────────
+upload_channel:
+  credentials_env: "YOUTUBE_CREDENTIALS"   # GitHub Secret name
+  discord_webhook_env: "DISCORD_WEBHOOK"   # GitHub Secret name
+
+# ─────────────────────────────────────────────────────────────
+# SOURCE CREATORS (channels you clip from)
+# Add or remove creators freely. Set active: false to pause one.
+# To find a channel_id: go to the channel page, view source,
+# search for "channelId" — or use https://commentpicker.com/youtube-channel-id.php
+# ─────────────────────────────────────────────────────────────
+source_creators:
+  - name: "MrBeast"
+    channel_id: "UCX6OQ3DkcsbYNE6H8uQQuVA"
+    active: true
+    max_videos_per_run: 2
+
+  - name: "Speed"
+    channel_id: "UC508aO-J8KJTQ5eCcyMRF6g"
+    active: true
+    max_videos_per_run: 1
+
+  # ── Add more creators below ──────────────────────────────
+  # - name: "KSI"
+  #   channel_id: "UCVtFOytbRpEvzLjvqGG5gxQ"
+  #   active: false
+  #   max_videos_per_run: 1
