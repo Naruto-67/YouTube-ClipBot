@@ -39,6 +39,12 @@ CREATE TABLE failures (
                     error           TEXT NOT NULL,
                     context         TEXT
                 );
+INSERT INTO "failures" VALUES(1,'2026-03-14T17:22:28.611909','fetcher.download','yt-dlp failed after update','AoN1K4c7VKE');
+INSERT INTO "failures" VALUES(2,'2026-03-14T17:22:35.115036','fetcher.download','yt-dlp failed after update','hjkbqeWQAM8');
+INSERT INTO "failures" VALUES(3,'2026-03-14T17:22:43.166981','fetcher.download','yt-dlp failed after update','Xg1ro-zG7AM');
+INSERT INTO "failures" VALUES(4,'2026-03-14T17:22:51.072513','fetcher.download','yt-dlp failed after update','3GNyw4uaAqU');
+INSERT INTO "failures" VALUES(5,'2026-03-14T17:22:57.860605','fetcher.download','yt-dlp failed after update','IJkB-oapuks');
+INSERT INTO "failures" VALUES(6,'2026-03-14T17:23:06.126989','fetcher.download','yt-dlp failed after update','9BsQpGhwVAY');
 CREATE TABLE manual_queue (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     url             TEXT NOT NULL UNIQUE,
@@ -59,6 +65,12 @@ CREATE TABLE processed_videos (
                     clips_made      INTEGER DEFAULT 0,
                     processed_at    TEXT NOT NULL
                 );
+INSERT INTO "processed_videos" VALUES('AoN1K4c7VKE','MrBeast','Survive 30 Days Stranded With Your Ex, Win $250,000','download_failed',0,'2026-03-14T17:22:28.991764');
+INSERT INTO "processed_videos" VALUES('hjkbqeWQAM8','MrBeast','Every Step You Take, Win $1,000','download_failed',0,'2026-03-14T17:22:35.384771');
+INSERT INTO "processed_videos" VALUES('Xg1ro-zG7AM','Mark Rober','Engineers vs Junkyard RC Car Death Match','download_failed',0,'2026-03-14T17:22:43.490012');
+INSERT INTO "processed_videos" VALUES('3GNyw4uaAqU','MrBeast','Subscribe for an iPhone','download_failed',0,'2026-03-14T17:22:51.557361');
+INSERT INTO "processed_videos" VALUES('IJkB-oapuks','MrBeast','Giving Away $1,000,000 in Gifts To My Subscribers','download_failed',0,'2026-03-14T17:22:58.149613');
+INSERT INTO "processed_videos" VALUES('9BsQpGhwVAY','Mark Rober','pride comes before flop','download_failed',0,'2026-03-14T17:23:06.449700');
 CREATE TABLE quota_log (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     logged_at       TEXT NOT NULL,
@@ -67,19 +79,19 @@ CREATE TABLE quota_log (
                     units_used      INTEGER DEFAULT 1,
                     operation       TEXT
                 );
-INSERT INTO "quota_log" VALUES(1,'2026-03-14T16:32:20.036215','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(2,'2026-03-14T16:32:20.154288','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(3,'2026-03-14T16:32:20.341344','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(4,'2026-03-14T16:32:20.521257','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(5,'2026-03-14T16:32:27.527967','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(6,'2026-03-14T16:32:27.722717','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(7,'2026-03-14T16:32:27.848149','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(8,'2026-03-14T16:32:32.281426','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(9,'2026-03-14T16:32:32.445495','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(10,'2026-03-14T16:32:32.596736','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(11,'2026-03-14T16:32:40.376158','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(12,'2026-03-14T16:32:40.538270','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(13,'2026-03-14T16:32:40.679425','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(1,'2026-03-14T17:22:19.211147','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(2,'2026-03-14T17:22:19.341368','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(3,'2026-03-14T17:22:19.520205','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(4,'2026-03-14T17:22:19.647130','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(5,'2026-03-14T17:22:35.459005','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(6,'2026-03-14T17:22:35.594782','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(7,'2026-03-14T17:22:35.768944','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(8,'2026-03-14T17:22:43.931785','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(9,'2026-03-14T17:22:44.104911','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(10,'2026-03-14T17:22:44.325090','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(11,'2026-03-14T17:22:58.224738','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(12,'2026-03-14T17:22:58.462034','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(13,'2026-03-14T17:22:58.633726','youtube',NULL,1,'videos_list');
 CREATE TABLE uploaded_shorts (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     youtube_id      TEXT UNIQUE,
