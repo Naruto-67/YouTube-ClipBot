@@ -16,11 +16,6 @@ source_creators:
     active: true
     max_videos_per_run: 2
 
-  - name: "Speed"
-    channel_id: "UC508aO-J8KJTQ5eCcyMRF6g"
-    active: true
-    max_videos_per_run: 1
-
   - name: "Mark Rober"
     channel_id: "UCY1kMZp36IQSyNx_9h4mpCg"
     active: true
