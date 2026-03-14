@@ -5,7 +5,10 @@ import traceback
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import requests
+# NOTE: 'import requests' has been moved inside _send() as a lazy import.
+# This prevents ModuleNotFoundError during test collection in CI, where
+# 'requests' is not installed. The import only runs when a Discord message
+# is actually being sent — which never happens in tests.
 
 # Discord embed colours
 COLOR_SUCCESS = 0x2ECC71   # green
@@ -40,6 +43,7 @@ class DiscordNotifier:
             print("⚠️  Discord webhook not configured — skipping notification.")
             return False
         try:
+            import requests  # lazy import — only loads when actually sending
             resp = requests.post(
                 url,
                 json=payload,
