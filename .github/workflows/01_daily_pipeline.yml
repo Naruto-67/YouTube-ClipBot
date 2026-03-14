@@ -53,8 +53,15 @@ jobs:
           pip install -r requirements.txt -q
 
       - name: Write YouTube cookies
-        if: ${{ secrets.YT_COOKIES != '' }}
-        run: echo "${{ secrets.YT_COOKIES }}" > /tmp/yt-cookies.txt
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then
+            echo "$YT_COOKIES" > /tmp/yt-cookies.txt
+            echo "✅ Cookies written"
+          else
+            echo "ℹ️  No YT_COOKIES secret set — skipping"
+          fi
 
       - name: Download caption font
         run: python scripts/download_font.py
