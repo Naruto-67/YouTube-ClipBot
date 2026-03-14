@@ -128,9 +128,20 @@ class Database:
     # ── Processed videos ─────────────────────────────────────────────────
 
     def is_video_processed(self, video_id: str) -> bool:
+        """
+        Returns True only for videos that completed successfully.
+        Videos that failed at download or transcription are NOT considered
+        processed — they will be retried on the next run.
+
+        Statuses that block re-processing: 'banked', 'no_clips'
+        Statuses that allow retry:         'download_failed', 'transcription_failed'
+        """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM processed_videos WHERE video_id = ?", (video_id,)
+                """SELECT 1 FROM processed_videos
+                   WHERE video_id = ?
+                   AND status NOT IN ('download_failed', 'transcription_failed')""",
+                (video_id,)
             ).fetchone()
             return row is not None
 
