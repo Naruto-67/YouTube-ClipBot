@@ -59,12 +59,6 @@ CREATE TABLE processed_videos (
                     clips_made      INTEGER DEFAULT 0,
                     processed_at    TEXT NOT NULL
                 );
-INSERT INTO "processed_videos" VALUES('AoN1K4c7VKE','MrBeast','Survive 30 Days Stranded With Your Ex, Win $250,000','download_failed',0,'2026-03-14T16:32:23.917815');
-INSERT INTO "processed_videos" VALUES('hjkbqeWQAM8','MrBeast','Every Step You Take, Win $1,000','download_failed',0,'2026-03-14T16:32:27.404436');
-INSERT INTO "processed_videos" VALUES('Xg1ro-zG7AM','Mark Rober','Engineers vs Junkyard RC Car Death Match','download_failed',0,'2026-03-14T16:32:31.561951');
-INSERT INTO "processed_videos" VALUES('3GNyw4uaAqU','MrBeast','Subscribe for an iPhone','download_failed',0,'2026-03-14T16:32:36.336065');
-INSERT INTO "processed_videos" VALUES('IJkB-oapuks','MrBeast','Giving Away $1,000,000 in Gifts To My Subscribers','download_failed',0,'2026-03-14T16:32:40.296065');
-INSERT INTO "processed_videos" VALUES('9BsQpGhwVAY','Mark Rober','pride comes before flop','download_failed',0,'2026-03-14T16:32:44.196687');
 CREATE TABLE quota_log (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     logged_at       TEXT NOT NULL,
