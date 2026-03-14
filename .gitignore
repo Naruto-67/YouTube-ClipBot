@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+
+# Temp files created during pipeline runs (never commit these)
+temp/
+/tmp/
+*.mp4
+*.mp3
+*.wav
+*.webm
+*.mkv
+*.m4a
+
+# Local DB binary (only SQL dump gets committed)
+memory/clipbot.db
+memory/clipbot_test.db
+
+# Cookies (sensitive)
+cookies.txt
+*.cookies
+
+# OS files
+.DS_Store
+Thumbs.db
