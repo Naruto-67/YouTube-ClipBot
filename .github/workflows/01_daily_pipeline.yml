@@ -52,6 +52,14 @@ jobs:
           pip install --upgrade pip -q
           pip install -r requirements.txt -q
 
+      - name: Write YouTube cookies
+        # Only runs if the YT_COOKIES secret is set.
+        # If the secret is empty, the file is not created and yt-dlp
+        # runs without cookies (bootstrap mode — downloads may fail on
+        # GitHub's IPs without cookies).
+        if: ${{ secrets.YT_COOKIES != '' }}
+        run: echo "${{ secrets.YT_COOKIES }}" > /tmp/yt-cookies.txt
+
       - name: Download caption font
         run: python scripts/download_font.py
 
@@ -62,6 +70,7 @@ jobs:
           YOUTUBE_CREDENTIALS:   ${{ secrets.YOUTUBE_CREDENTIALS }}
           DISCORD_WEBHOOK:       ${{ secrets.DISCORD_WEBHOOK }}
           CLIPBOT_ENABLED:       ${{ vars.CLIPBOT_ENABLED }}
+          YT_COOKIES_PATH:       ${{ secrets.YT_COOKIES != '' && '/tmp/yt-cookies.txt' || '' }}
         run: python main.py
 
       - name: Commit DB dump to repo
