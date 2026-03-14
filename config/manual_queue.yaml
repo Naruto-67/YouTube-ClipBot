@@ -1,0 +1,25 @@
+# config/manual_queue.yaml
+# ─────────────────────────────────────────────────────────────
+# Add specific videos you want to clip here.
+# The pipeline processes this list FIRST before auto-discovery.
+# After a video is processed, its status is updated to "done"
+# automatically — it will never run twice.
+#
+# Use cases:
+#   - Vyro campaign drops a specific video to clip
+#   - You spot a viral video you want to process immediately
+#   - Testing a new creator before adding them permanently
+#
+# To add a video: paste the URL + set status to "pending" + push
+# ─────────────────────────────────────────────────────────────
+
+videos: []
+
+# ── Example (uncomment to use) ──────────────────────────────
+# videos:
+#   - url: "https://www.youtube.com/watch?v=XXXXXXXXXXX"
+#     creator_name: "MrBeast"       # Label for Discord reports
+#     source: "Vyro"                # "Vyro", "Manual", or "Auto"
+#     note: "Vyro campaign — Beast Games finale"
+#     max_clips: 8                  # Override dynamic clip count
+#     status: "pending"             # pending | done | failed

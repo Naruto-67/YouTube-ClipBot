@@ -114,7 +114,11 @@ class DiscordNotifier:
         fields = [
             {"name": "📤 Uploads Today",
              "value": f"{stats.get('uploaded', 0)} shorts scheduled", "inline": True},
-            {"name": "🎬 Videos Checked",
+            {"name": "🏦 Bank Remaining",
+             "value": str(stats.get("bank_count_end", 0)) + " clips", "inline": True},
+            {"name": "🎬 Newly Banked",
+             "value": str(stats.get("clips_banked", 0)) + " clips", "inline": True},
+            {"name": "📹 Videos Checked",
              "value": str(stats.get("videos_checked", 0)), "inline": True},
             {"name": "❌ Errors",
              "value": str(stats.get("errors", 0)), "inline": True},

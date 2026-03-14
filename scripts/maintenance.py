@@ -27,6 +27,7 @@ def run():
         ai_reliability_days=cfg.get("prune_ai_reliability_days", 14),
         failures_days=cfg.get("prune_failures_days", 14),
         analytics_days=cfg.get("prune_analytics_days", 60),
+        clip_bank_days=cfg.get("prune_clip_bank_days", 30),
     )
     print(f"✂️  Pruned {pruned} old records")
 

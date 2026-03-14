@@ -5,56 +5,72 @@
 # ─────────────────────────────────────────────────────────────
 
 # ── Volume ──────────────────────────────────────────────────
-max_clips_per_day: 3           # Max shorts to upload per day
-max_source_videos_per_creator: 2  # How many videos to pull per creator per run
+max_clips_per_day: 3              # Max shorts uploaded per day (from bank)
+max_source_videos_per_creator: 2  # Videos to discover per creator per run
 
 # ── Source video constraints ────────────────────────────────
-max_video_age_days: 30          # Only process videos published this recently
-max_video_length_minutes: 30    # Skip videos longer than this
-source_video_quality: "720"     # Download resolution (720 or 1080)
-min_disk_free_gb: 3             # Refuse download if disk is below this
+max_video_age_days: 30            # Normal discovery window
+backlog_max_age_days: 90          # Extended window when bank is low
+max_video_length_minutes: 90      # Raised — chunked transcription handles long videos
+source_video_quality: "720"
+min_disk_free_gb: 3
+
+# ── Clip bank ───────────────────────────────────────────────
+clip_bank_low_threshold: 3        # Trigger discovery when bank has fewer than this
+# Dynamic clip count based on video duration:
+clips_per_video_tiers:
+  - max_minutes: 10
+    clips: 2
+  - max_minutes: 20
+    clips: 4
+  - max_minutes: 35
+    clips: 6
+  - max_minutes: 999
+    clips: 10
+
+# ── Manual queue ────────────────────────────────────────────
+manual_queue_file: "config/manual_queue.yaml"
+
+# ── Chunked transcription ────────────────────────────────────
+chunk_duration_minutes: 15
+chunk_overlap_minutes: 2
 
 # ── Clip selection ──────────────────────────────────────────
 min_clip_seconds: 30
 max_clip_seconds: 60
-clips_per_video: 2              # How many clips to extract per source video
-ai_confidence_threshold: 0.60  # Preferred minimum AI confidence
-ai_confidence_floor: 0.30      # Never use clips below this, even as fallback
+ai_confidence_threshold: 0.60
+ai_confidence_floor: 0.30
 
 # ── Caption style ───────────────────────────────────────────
 caption_words_per_line: 4
 caption_font: "Anton-Regular"
 caption_font_size: 85
-# ASS color format: &HAABBGGRR (alpha, blue, green, red)
-caption_text_color: "&H00FFFFFF"       # White
-caption_highlight_color: "&H0000FFFF"  # Yellow
-caption_outline_color: "&H00000000"    # Black
-caption_glow_color: "&H800000FF"       # Semi-transparent red glow
+caption_text_color: "&H00FFFFFF"
+caption_highlight_color: "&H0000FFFF"
+caption_outline_color: "&H00000000"
+caption_glow_color: "&H800000FF"
 
 # ── Video rendering ─────────────────────────────────────────
 output_width: 1080
 output_height: 1920
 output_fps: 30
-output_crf: 23                  # 18=best quality, 28=smallest file, 23=balanced
-original_audio_db: -20          # Reduce source audio (Content ID mitigation)
+output_crf: 23
+original_audio_db: -20
 apply_vignette: true
-vignette_angle: 0.785           # radians (~45 degrees)
+vignette_angle: 0.785
 
 # ── Voiceover hook ──────────────────────────────────────────
 add_voiceover_hook: true
 hook_max_words: 10
-hook_voice: "en-US-GuyNeural"   # edge-tts voice for hook
+hook_voice: "en-US-GuyNeural"
 
 # ── Scheduling ──────────────────────────────────────────────
-upload_buffer_hours: 2          # Upload this far ahead of publish time
-analytics_subscriber_threshold: 1000  # Use Analytics API above this count
-
-# Default windows when Analytics data is unavailable (UTC times)
-# These represent peak US Eastern viewing hours
+upload_buffer_hours: 2
+analytics_subscriber_threshold: 1000
 default_upload_windows_utc:
-  - "19:00"   # 3 PM ET
-  - "22:00"   # 6 PM ET
-  - "01:00"   # 9 PM ET
+  - "19:00"
+  - "22:00"
+  - "01:00"
 
 # ── Storage cleanup ─────────────────────────────────────────
 prune_processed_videos_days: 90
@@ -62,6 +78,7 @@ prune_quota_log_days: 30
 prune_ai_reliability_days: 14
 prune_failures_days: 14
 prune_analytics_days: 60
+prune_clip_bank_days: 30
 error_log_max_mb: 1.0
 
 # ── Retry behavior ──────────────────────────────────────────

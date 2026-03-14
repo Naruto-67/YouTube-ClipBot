@@ -8,6 +8,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import yaml
+
 from engine.config_manager import config_manager
 from engine.database import db
 from engine.discord_notifier import notifier
@@ -18,7 +20,6 @@ TEMP_DIR = ROOT / "temp"
 
 
 def _build_youtube_service():
-    """Build YouTube Data API service from stored credentials."""
     import json
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
@@ -26,7 +27,6 @@ def _build_youtube_service():
     raw = os.environ.get("YOUTUBE_CREDENTIALS", "")
     if not raw:
         raise RuntimeError("YOUTUBE_CREDENTIALS secret is not set.")
-
     creds_data = json.loads(raw)
     creds = Credentials(
         token=None,
@@ -44,11 +44,8 @@ def _build_youtube_service():
 
 
 def get_youtube_service():
-    """Return (youtube_service, credentials) tuple."""
     return _build_youtube_service()
 
-
-# ── Disk check ────────────────────────────────────────────────────────────
 
 def check_disk_space() -> bool:
     cfg = config_manager.pipeline
@@ -58,17 +55,13 @@ def check_disk_space() -> bool:
     if free_gb < min_gb:
         notifier.send_warning(
             "Low Disk Space",
-            f"Only {free_gb:.1f} GB free. Minimum required: {min_gb} GB. "
-            "Skipping this download."
+            f"Only {free_gb:.1f} GB free. Minimum: {min_gb} GB. Skipping download."
         )
         return False
     return True
 
 
-# ── yt-dlp self-update ────────────────────────────────────────────────────
-
 def update_ytdlp():
-    """Auto-update yt-dlp before every run to stay ahead of YouTube bot detection."""
     try:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-U", "yt-dlp", "-q"],
@@ -76,20 +69,115 @@ def update_ytdlp():
         )
         print("✅ yt-dlp updated")
     except subprocess.CalledProcessError as e:
-        print(f"⚠️  yt-dlp update failed (continuing with current version): {e}")
+        print(f"⚠️  yt-dlp update failed (continuing with current version)")
 
 
-# ── Viral video discovery ─────────────────────────────────────────────────
+# ── Manual queue ──────────────────────────────────────────────────────────
 
-def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
+def sync_manual_queue():
+    """Load manual_queue.yaml into DB. Returns count of pending entries."""
+    cfg = config_manager.pipeline
+    queue_file = ROOT / cfg.get("manual_queue_file", "config/manual_queue.yaml")
+    if not queue_file.exists():
+        return 0
+    try:
+        data = yaml.safe_load(queue_file.read_text())
+        entries = data.get("videos", []) if data else []
+        # Only sync pending entries from YAML
+        pending = [e for e in entries if e.get("status", "pending") == "pending"]
+        if pending:
+            db.sync_manual_queue_from_yaml(pending)
+        return db.get_bank_count("pending")
+    except Exception as e:
+        print(f"⚠️  Could not load manual_queue.yaml: {e}")
+        return 0
+
+
+def extract_video_id_from_url(url: str) -> Optional[str]:
+    """Extract YouTube video ID from any YouTube URL format."""
+    import re
+    patterns = [
+        r"(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11})",
+        r"^([a-zA-Z0-9_-]{11})$",
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def resolve_manual_queue_entry(entry: Dict, youtube_service) -> Optional[Dict]:
     """
-    Fetch recently viral videos from a creator using their uploads playlist.
-    Cost-efficient: uses playlistItems.list (1 unit) + videos.list (1 unit)
-    instead of search.list (100 units).
+    Convert a manual queue entry into the same video dict format
+    used by fetch_viral_videos, so it flows through the same pipeline.
+    """
+    url = entry.get("url", "")
+    video_id = extract_video_id_from_url(url)
+    if not video_id:
+        print(f"⚠️  Could not extract video ID from: {url}")
+        db.mark_queue_entry_failed(entry["id"])
+        return None
+
+    if db.is_video_processed(video_id):
+        print(f"ℹ️  Manual queue: {video_id} already processed — skipping")
+        db.mark_queue_entry_done(entry["id"], video_id)
+        return None
+
+    # Fetch video metadata
+    can, reason = quota_manager.can_use_youtube(units=1)
+    if not can:
+        print(f"⚠️  YouTube quota: {reason}")
+        return None
+
+    try:
+        resp = youtube_service.videos().list(
+            part="snippet,contentDetails,statistics", id=video_id
+        ).execute()
+        quota_manager.record_youtube(
+            config_manager.get_yt_unit_cost("videos_list"), "videos_list"
+        )
+        if not resp.get("items"):
+            print(f"⚠️  Video not found: {video_id}")
+            db.mark_queue_entry_failed(entry["id"])
+            return None
+
+        item = resp["items"][0]
+        duration_sec = _parse_iso_duration(
+            item.get("contentDetails", {}).get("duration", "PT0S")
+        )
+        return {
+            "id": video_id,
+            "title": item["snippet"].get("title", "Unknown"),
+            "views": int(item.get("statistics", {}).get("viewCount", 0)),
+            "duration_sec": duration_sec,
+            "creator_name": entry.get("creator_name", "Unknown"),
+            "url": url,
+            "manual_queue_id": entry["id"],
+            "manual_max_clips": entry.get("max_clips", 0),
+        }
+    except Exception as e:
+        db.log_failure("fetcher.resolve_manual", str(e), traceback.format_exc())
+        return None
+
+
+# ── Auto-discovery ────────────────────────────────────────────────────────
+
+def fetch_viral_videos(creator: Dict, youtube_service,
+                       extend_backlog: bool = False) -> List[Dict]:
+    """
+    Fetch recently viral videos from a creator's uploads playlist.
+    If extend_backlog=True, uses the longer backlog window (90 days).
+    Cost: ~3 YouTube API units total.
     """
     cfg = config_manager.pipeline
-    max_age_days = cfg.get("max_video_age_days", 30)
-    max_length_min = cfg.get("max_video_length_minutes", 30)
+    if extend_backlog:
+        max_age_days = cfg.get("backlog_max_age_days", 90)
+        print(f"🔍 Extended backlog mode ({max_age_days} days) for {creator['name']}")
+    else:
+        max_age_days = cfg.get("max_video_age_days", 30)
+
+    max_length_min = cfg.get("max_video_length_minutes", 90)
     max_results = creator.get("max_videos_per_run", 2)
     channel_id = creator["channel_id"]
     creator_name = creator["name"]
@@ -100,14 +188,13 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
         return []
 
     try:
-        # Step 1 — get uploads playlist ID (1 unit)
+        # Get uploads playlist ID
         ch_resp = youtube_service.channels().list(
             part="contentDetails", id=channel_id
         ).execute()
         quota_manager.record_youtube(
             config_manager.get_yt_unit_cost("channels_list"), "channels_list"
         )
-
         if not ch_resp.get("items"):
             print(f"⚠️  Channel not found: {creator_name} ({channel_id})")
             return []
@@ -116,14 +203,13 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
             ch_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         )
 
-        # Step 2 — get recent uploads (1 unit)
+        # Get recent uploads
         pl_resp = youtube_service.playlistItems().list(
-            part="snippet",
-            playlistId=uploads_id,
-            maxResults=50,
+            part="snippet", playlistId=uploads_id, maxResults=50
         ).execute()
         quota_manager.record_youtube(
-            config_manager.get_yt_unit_cost("playlist_items_list"), "playlist_items_list"
+            config_manager.get_yt_unit_cost("playlist_items_list"),
+            "playlist_items_list"
         )
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
@@ -135,11 +221,12 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
             title = snippet.get("title", "")
             published_str = snippet.get("publishedAt", "")
 
-            # Already processed?
             if db.is_video_processed(vid_id):
                 continue
+            # Also skip if already in the clip bank (processed but clips still pending)
+            if vid_id in db.get_pending_source_video_ids():
+                continue
 
-            # Age check
             if published_str:
                 pub_dt = datetime.fromisoformat(published_str.replace("Z", "+00:00"))
                 if pub_dt < cutoff:
@@ -152,11 +239,10 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
             print(f"ℹ️  No new videos for {creator_name}")
             return []
 
-        # Step 3 — get view counts + duration (1 unit per 50 videos)
+        # Get view counts + duration
         vid_ids = [v["id"] for v in candidates[:50]]
         stats_resp = youtube_service.videos().list(
-            part="statistics,contentDetails",
-            id=",".join(vid_ids),
+            part="statistics,contentDetails", id=",".join(vid_ids)
         ).execute()
         quota_manager.record_youtube(
             config_manager.get_yt_unit_cost("videos_list"), "videos_list"
@@ -166,11 +252,11 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
         for item in stats_resp.get("items", []):
             vid_id = item["id"]
             views = int(item.get("statistics", {}).get("viewCount", 0))
-            duration_iso = item.get("contentDetails", {}).get("duration", "PT0S")
-            duration_sec = _parse_iso_duration(duration_iso)
+            duration_sec = _parse_iso_duration(
+                item.get("contentDetails", {}).get("duration", "PT0S")
+            )
             stats_map[vid_id] = {"views": views, "duration_sec": duration_sec}
 
-        # Enrich + filter by length
         enriched = []
         for v in candidates:
             s = stats_map.get(v["id"], {})
@@ -182,30 +268,23 @@ def fetch_viral_videos(creator: Dict, youtube_service) -> List[Dict]:
             v["views"] = s.get("views", 0)
             v["duration_sec"] = duration_sec
             v["creator_name"] = creator_name
+            v["url"] = f"https://www.youtube.com/watch?v={v['id']}"
             enriched.append(v)
 
-        # Sort by view count (most viral first)
         enriched.sort(key=lambda x: x["views"], reverse=True)
         result = enriched[:max_results]
-
         print(f"✅ Found {len(result)} candidate video(s) from {creator_name}")
         return result
 
     except Exception as e:
-        db.log_failure("fetcher.fetch_viral_videos", str(e),
-                       traceback.format_exc())
+        db.log_failure("fetcher.fetch_viral_videos", str(e), traceback.format_exc())
         notifier.send_error("Video Fetch Failed", str(e))
         return []
 
 
-# ── Video download ────────────────────────────────────────────────────────
+# ── Download ─────────────────────────────────────────────────────────────
 
 def download_video(video: Dict) -> Optional[Path]:
-    """
-    Download a YouTube video with yt-dlp.
-    Returns path to downloaded file, or None on failure.
-    Includes auto-retry with yt-dlp update on first failure.
-    """
     if not check_disk_space():
         return None
 
@@ -216,52 +295,52 @@ def download_video(video: Dict) -> Optional[Path]:
     out_template = str(TEMP_DIR / f"{vid_id}.%(ext)s")
 
     cookies_path = os.environ.get("YT_COOKIES_PATH", "")
-    cookie_args = ["--cookies", cookies_path] if cookies_path and Path(cookies_path).exists() else []
+    cookie_args = (
+        ["--cookies", cookies_path]
+        if cookies_path and Path(cookies_path).exists()
+        else []
+    )
 
     cmd = [
         sys.executable, "-m", "yt_dlp",
         f"https://www.youtube.com/watch?v={vid_id}",
-        "--format", f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}][ext=mp4]/best",
+        "--format",
+        f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]"
+        f"/best[height<={quality}][ext=mp4]/best",
         "--output", out_template,
-        "--no-playlist",
-        "--no-warnings",
-        "--quiet",
+        "--no-playlist", "--no-warnings", "--quiet",
         "--merge-output-format", "mp4",
-        # Force English audio/subtitles
-        "--match-filter", "language='en' | !language",
     ] + cookie_args
 
     for attempt in range(2):
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=600)
-            # Find the output file
             matches = list(TEMP_DIR.glob(f"{vid_id}.*"))
             mp4_files = [f for f in matches if f.suffix == ".mp4"]
             if mp4_files:
-                print(f"✅ Downloaded: {video['title'][:60]}")
+                print(f"✅ Downloaded: {video.get('title', vid_id)[:60]}")
                 return mp4_files[0]
-            # Sometimes yt-dlp merges to mkv
-            mkv_files = [f for f in matches if f.suffix in (".mkv", ".webm")]
-            if mkv_files:
-                return mkv_files[0]
-        except subprocess.CalledProcessError as e:
+            other = [f for f in matches if f.suffix in (".mkv", ".webm")]
+            if other:
+                return other[0]
+        except subprocess.CalledProcessError:
             if attempt == 0:
                 print("⚠️  yt-dlp failed — updating and retrying...")
                 update_ytdlp()
             else:
-                db.log_failure("fetcher.download", str(e), vid_id)
-                notifier.send_warning("Download Failed",
-                                      f"Could not download `{video['title'][:60]}`")
+                db.log_failure("fetcher.download", "yt-dlp failed after update", vid_id)
+                notifier.send_warning(
+                    "Download Failed",
+                    f"Could not download `{video.get('title', vid_id)[:60]}`"
+                )
                 return None
         except subprocess.TimeoutExpired:
             db.log_failure("fetcher.download", "Timeout after 600s", vid_id)
             return None
-
     return None
 
 
 def cleanup_video(path: Optional[Path]):
-    """Delete a temp video file immediately after use."""
     if path and path.exists():
         try:
             path.unlink()
@@ -269,14 +348,9 @@ def cleanup_video(path: Optional[Path]):
             pass
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────
-
 def _parse_iso_duration(duration: str) -> int:
-    """Convert ISO 8601 duration (PT1H2M3S) to seconds."""
     import re
-    match = re.match(
-        r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration
-    )
+    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration)
     if not match:
         return 0
     h = int(match.group(1) or 0)
