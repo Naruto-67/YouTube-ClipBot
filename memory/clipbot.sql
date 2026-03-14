@@ -39,12 +39,6 @@ CREATE TABLE failures (
                     error           TEXT NOT NULL,
                     context         TEXT
                 );
-INSERT INTO "failures" VALUES(1,'2026-03-14T16:32:23.632551','fetcher.download','yt-dlp failed after update','AoN1K4c7VKE');
-INSERT INTO "failures" VALUES(2,'2026-03-14T16:32:27.208723','fetcher.download','yt-dlp failed after update','hjkbqeWQAM8');
-INSERT INTO "failures" VALUES(3,'2026-03-14T16:32:31.334192','fetcher.download','yt-dlp failed after update','Xg1ro-zG7AM');
-INSERT INTO "failures" VALUES(4,'2026-03-14T16:32:36.137261','fetcher.download','yt-dlp failed after update','3GNyw4uaAqU');
-INSERT INTO "failures" VALUES(5,'2026-03-14T16:32:40.049961','fetcher.download','yt-dlp failed after update','IJkB-oapuks');
-INSERT INTO "failures" VALUES(6,'2026-03-14T16:32:43.882098','fetcher.download','yt-dlp failed after update','9BsQpGhwVAY');
 CREATE TABLE manual_queue (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     url             TEXT NOT NULL UNIQUE,
