@@ -49,6 +49,7 @@ Every Sunday: token health check, post-upload monitor, storage cleanup.
 | Creator | Permission | Content Type |
 |---|---|---|
 | MrBeast | Vyro partner — authorized | Challenges, reactions, funny moments |
+| Speed | Vyro partner — authorized | Reactions, gaming, high energy |
 | Mark Rober | Vyro partner — authorized | Science reveals, satisfying outcomes |
 
 Add more creators any time by editing `config/channels.yaml` — no code changes needed.
