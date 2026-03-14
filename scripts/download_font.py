@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 # scripts/download_font.py
 """
-Downloads Anton-Regular.ttf from Google Fonts if not already present.
+Downloads Anton-Regular.ttf if not already present.
 Called automatically at the start of the render step in GitHub Actions.
 Can also be run locally:  python scripts/download_font.py
+
+NOTE: Uses the direct raw TTF from Google's fonts GitHub repo instead of
+the Google Fonts zip download endpoint, which now returns an HTML page
+instead of a zip file and can no longer be used.
 """
-import io
 import sys
-import zipfile
 from pathlib import Path
 
 import requests
 
 FONT_DIR = Path(__file__).parent.parent / "assets" / "fonts"
 FONT_PATH = FONT_DIR / "Anton-Regular.ttf"
-# Direct download URL for Anton font zip from Google Fonts
-FONT_URL = "https://fonts.google.com/download?family=Anton"
+
+# Direct raw TTF from Google Fonts GitHub — no unzipping needed
+FONT_URLS = [
+    "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
+    "https://github.com/google/fonts/raw/refs/heads/main/ofl/anton/Anton-Regular.ttf",
+]
 
 
 def download():
@@ -25,25 +31,31 @@ def download():
 
     FONT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("⬇️  Downloading Anton font from Google Fonts...")
-    try:
-        resp = requests.get(FONT_URL, timeout=30)
-        resp.raise_for_status()
+    for url in FONT_URLS:
+        print(f"⬇️  Downloading Anton font from: {url}")
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
 
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-            for name in z.namelist():
-                if name.endswith("Anton-Regular.ttf"):
-                    FONT_PATH.write_bytes(z.read(name))
-                    print(f"✅ Font saved to {FONT_PATH}")
-                    return True
+            content = resp.content
 
-        print("❌ Anton-Regular.ttf not found in downloaded zip")
-        return False
+            # Sanity check — a real TTF file is always well over 10 KB
+            if len(content) < 10_000:
+                print(f"⚠️  Response too small ({len(content)} bytes) — "
+                      f"likely not a font file, trying next URL...")
+                continue
 
-    except Exception as e:
-        print(f"⚠️  Font download failed: {e}")
-        print("   Captions will use system fallback font.")
-        return False
+            FONT_PATH.write_bytes(content)
+            print(f"✅ Font saved to {FONT_PATH}")
+            return True
+
+        except Exception as e:
+            print(f"⚠️  Download failed from {url}: {e}")
+            continue
+
+    print("❌ All font download attempts failed.")
+    print("   Captions will use system fallback font.")
+    return False
 
 
 if __name__ == "__main__":
