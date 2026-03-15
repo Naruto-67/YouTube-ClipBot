@@ -39,6 +39,18 @@ CREATE TABLE failures (
                     error           TEXT NOT NULL,
                     context         TEXT
                 );
+INSERT INTO "failures" VALUES(1,'2026-03-15T04:57:49.327259','fetcher.download','yt-dlp failed after update: WARNING: [youtube] AoN1K4c7VKE: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] AoN1K4c7VKE: mweb client https formats require a GVS PO Token which was not provided. They will be skipped as they may yield HTTP Error 403. You can manually pass a GVS PO ','AoN1K4c7VKE');
+INSERT INTO "failures" VALUES(2,'2026-03-15T04:57:53.816167','fetcher.download','yt-dlp failed after update: WARNING: [youtube] hjkbqeWQAM8: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] hjkbqeWQAM8: mweb client https formats require a GVS PO Token which was not provided. They will be skipped as they may yield HTTP Error 403. You can manually pass a GVS PO ','hjkbqeWQAM8');
+INSERT INTO "failures" VALUES(3,'2026-03-15T04:57:59.341855','fetcher.download','yt-dlp failed after update: WARNING: [youtube] Xg1ro-zG7AM: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] Xg1ro-zG7AM: mweb client https formats require a GVS PO Token which was not provided. They will be skipped as they may yield HTTP Error 403. You can manually pass a GVS PO ','Xg1ro-zG7AM');
+INSERT INTO "failures" VALUES(4,'2026-03-15T04:58:04.810050','fetcher.download','yt-dlp failed after update: WARNING: [youtube] 3GNyw4uaAqU: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] 3GNyw4uaAqU: mweb client https formats require a GVS PO Token which was not provided. They will be skipped as they may yield HTTP Error 403. You can manually pass a GVS PO ','3GNyw4uaAqU');
+INSERT INTO "failures" VALUES(5,'2026-03-15T04:58:09.316216','fetcher.download','yt-dlp failed after update: WARNING: [youtube] IJkB-oapuks: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] IJkB-oapuks: mweb client https formats require a GVS PO Token which was not provided. They will be skipped as they may yield HTTP Error 403. You can manually pass a GVS PO ','IJkB-oapuks');
+INSERT INTO "failures" VALUES(6,'2026-03-15T04:58:13.979552','fetcher.download','yt-dlp failed after update: WARNING: [youtube] 9BsQpGhwVAY: Signature solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] 9BsQpGhwVAY: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Revie','9BsQpGhwVAY');
 CREATE TABLE manual_queue (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     url             TEXT NOT NULL UNIQUE,
@@ -59,6 +71,12 @@ CREATE TABLE processed_videos (
                     clips_made      INTEGER DEFAULT 0,
                     processed_at    TEXT NOT NULL
                 );
+INSERT INTO "processed_videos" VALUES('AoN1K4c7VKE','MrBeast','Survive 30 Days Stranded With Your Ex, Win $250,000','download_failed',0,'2026-03-15T04:57:49.581296');
+INSERT INTO "processed_videos" VALUES('hjkbqeWQAM8','MrBeast','Every Step You Take, Win $1,000','download_failed',0,'2026-03-15T04:57:54.083619');
+INSERT INTO "processed_videos" VALUES('Xg1ro-zG7AM','Mark Rober','Engineers vs Junkyard RC Car Death Match','download_failed',0,'2026-03-15T04:57:59.516268');
+INSERT INTO "processed_videos" VALUES('3GNyw4uaAqU','MrBeast','Subscribe for an iPhone','download_failed',0,'2026-03-15T04:58:04.996012');
+INSERT INTO "processed_videos" VALUES('IJkB-oapuks','MrBeast','Giving Away $1,000,000 in Gifts To My Subscribers','download_failed',0,'2026-03-15T04:58:09.498014');
+INSERT INTO "processed_videos" VALUES('9BsQpGhwVAY','Mark Rober','pride comes before flop','download_failed',0,'2026-03-15T04:58:14.263102');
 CREATE TABLE quota_log (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     logged_at       TEXT NOT NULL,
@@ -67,6 +85,19 @@ CREATE TABLE quota_log (
                     units_used      INTEGER DEFAULT 1,
                     operation       TEXT
                 );
+INSERT INTO "quota_log" VALUES(1,'2026-03-15T04:57:43.762914','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(2,'2026-03-15T04:57:43.840885','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(3,'2026-03-15T04:57:43.999919','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(4,'2026-03-15T04:57:44.157125','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(5,'2026-03-15T04:57:54.154064','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(6,'2026-03-15T04:57:54.326898','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(7,'2026-03-15T04:57:54.453051','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(8,'2026-03-15T04:58:00.122381','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(9,'2026-03-15T04:58:00.327766','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(10,'2026-03-15T04:58:00.501771','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(11,'2026-03-15T04:58:09.579520','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(12,'2026-03-15T04:58:09.742098','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(13,'2026-03-15T04:58:09.884879','youtube',NULL,1,'videos_list');
 CREATE TABLE uploaded_shorts (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     youtube_id      TEXT UNIQUE,
