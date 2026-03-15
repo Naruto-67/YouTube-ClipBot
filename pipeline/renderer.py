@@ -33,6 +33,8 @@ def _detect_crop_x(video_path: Path, start_sec: float, end_sec: float,
     """
     Sample frames every 3 seconds, detect faces, return best crop x-offset.
     Falls back to center crop if no faces found.
+
+    start_sec / end_sec are relative to the video file (not absolute video time).
     """
     try:
         import cv2
@@ -67,13 +69,11 @@ def _detect_crop_x(video_path: Path, start_sec: float, end_sec: float,
         else:
             center_x = frame_w // 2
 
-        # Clamp so crop stays within frame
         half = crop_w // 2
         center_x = max(half, min(frame_w - half, center_x))
         return center_x - half
 
-    except Exception as e:
-        # cv2 error or other issue — fall back to center
+    except Exception:
         return (frame_w - crop_w) // 2
 
 
@@ -92,6 +92,10 @@ def _generate_ass(words: List[Dict], clip_start: float,
     """
     Generate ASS subtitle file with word-by-word highlighting.
     Active word = yellow with glow. Spoken words = dim white. Upcoming = white.
+
+    words: transcript words with ABSOLUTE timestamps (from original video).
+    clip_start: absolute start of clip in original video.
+    clip_duration: length of the rendered clip.
     """
     cfg = config_manager.pipeline
 
@@ -115,7 +119,6 @@ def _generate_ass(words: List[Dict], clip_start: float,
     highlight_color = cfg.get("caption_highlight_color", "&H0000FFFF")
     outline_color = cfg.get("caption_outline_color", "&H00000000")
 
-    # ASS header
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -130,7 +133,6 @@ Style: Default,{font_name},{font_size},{text_color},{text_color},{outline_color}
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    # Group words into lines
     lines = [
         clip_words[i: i + words_per_line]
         for i in range(0, len(clip_words), words_per_line)
@@ -140,29 +142,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     for line in lines:
         for i, active_word in enumerate(line):
-            # Determine event time window
             event_start = active_word["start"]
             event_end = (
                 line[i + 1]["start"] if i + 1 < len(line)
                 else line[-1]["end"]
             )
-            # Ensure non-zero duration
             if event_end <= event_start:
                 event_end = event_start + 0.1
 
-            # Build coloured text
             parts = []
             for j, w in enumerate(line):
                 word_text = w["word"]
                 if j == i:
-                    # Active word — highlighted
                     parts.append(
                         f"{{\\c{highlight_color}&\\3c&H00333333&\\blur4}}"
                         f"{word_text}"
                         f"{{\\c{text_color}&\\3c{outline_color}&\\blur0}}"
                     )
                 elif j < i:
-                    # Already spoken — slightly dimmed
                     parts.append(
                         f"{{\\c&H00BBBBBB&}}{word_text}{{\\c{text_color}&}}"
                     )
@@ -185,7 +182,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def _validate_output(path: Path) -> bool:
     """Use ffprobe to verify the rendered file is valid."""
-    if not path.exists() or path.stat().st_size < 50_000:  # < 50 KB is clearly broken
+    if not path.exists() or path.stat().st_size < 50_000:
         return False
     try:
         result = subprocess.run(
@@ -209,9 +206,25 @@ def render_short(
     clip: Dict,
     transcript_words: List[Dict],
     hook_audio_path: Optional[Path] = None,
+    segment_start: float = 0.0,
 ) -> Optional[Path]:
     """
     Render a YouTube Short from a clip spec.
+
+    Args:
+        source_path:      Path to video file (full video OR downloaded segment)
+        clip:             Clip spec with start_seconds/end_seconds (ABSOLUTE
+                          timestamps in the original video — not relative to file)
+        transcript_words: Word timestamps (ABSOLUTE — not relative to file)
+        hook_audio_path:  Optional voiceover hook audio
+        segment_start:    Where the source_path file starts in absolute video
+                          time. Default 0.0 = full video (backwards compatible).
+                          Set to seg_start from download_clip_segment() when
+                          using a downloaded segment.
+
+    The segment_start offset converts absolute clip timestamps to file-relative
+    timestamps for FFmpeg and face detection, while caption generation continues
+    to use absolute timestamps (it subtracts clip_start itself).
 
     Pipeline:
     1. Extract clip segment + force CFR 30fps
@@ -221,15 +234,18 @@ def render_short(
     5. Apply vignette
     6. Reduce original audio, mix in hook voiceover if present
     7. Validate output with ffprobe
-
-    Returns path to rendered MP4, or None on failure.
     """
     TEMP_DIR.mkdir(exist_ok=True)
     cfg = config_manager.pipeline
 
-    start = clip["start_seconds"]
-    end = clip["end_seconds"]
+    start = clip["start_seconds"]   # absolute
+    end = clip["end_seconds"]       # absolute
     clip_id = f"{source_path.stem}_{int(start)}_{int(end)}"
+
+    # Convert absolute timestamps → file-relative timestamps
+    # When segment_start=0 (full video), these equal start/end unchanged.
+    file_ss = start - segment_start
+    file_to = end - segment_start
 
     ass_path = TEMP_DIR / f"{clip_id}.ass"
     out_path = TEMP_DIR / f"{clip_id}_short.mp4"
@@ -252,12 +268,13 @@ def render_short(
 
             # ── 2. Calculate smart crop ───────────────────────────────
             crop_w = int(frame_h * 9 / 16)
-            crop_x = _detect_crop_x(source_path, start, end,
+            # Use file-relative timestamps for frame sampling
+            crop_x = _detect_crop_x(source_path, file_ss, file_to,
                                      frame_w, frame_h, crop_w)
-            # Clamp crop_x to valid range
             crop_x = max(0, min(frame_w - crop_w, crop_x))
 
             # ── 3. Generate captions ──────────────────────────────────
+            # Uses absolute timestamps — _generate_ass subtracts clip_start
             has_captions = _generate_ass(
                 transcript_words, start, end - start, ass_path
             )
@@ -279,7 +296,6 @@ def render_short(
             ]
 
             if has_captions and ass_path.exists():
-                # Escape path for FFmpeg filter (handle spaces, colons)
                 ass_escaped = str(ass_path).replace("\\", "/").replace(":", "\\:")
                 if font_path:
                     vf_parts.append(
@@ -294,15 +310,16 @@ def render_short(
             vf = ",".join(vf_parts)
 
             # ── 5. Build FFmpeg command ───────────────────────────────
+            # Use file-relative -ss / -to so FFmpeg seeks correctly
+            # regardless of whether source_path is a full video or a segment.
             cmd = [
                 "ffmpeg", "-y",
-                "-ss", str(start),
-                "-to", str(end),
+                "-ss", str(file_ss),
+                "-to", str(file_to),
                 "-i", str(source_path),
             ]
 
             if hook_audio_path and hook_audio_path.exists():
-                # Mix hook voiceover with reduced original audio
                 cmd += ["-i", str(hook_audio_path)]
                 af = (
                     f"[0:a]volume={audio_db}dB[orig];"
@@ -350,7 +367,6 @@ def render_short(
             print(f"⚠️  Renderer exception (attempt {attempt + 1}): {e}")
             db.log_failure("renderer", str(e), traceback.format_exc()[-500:])
         finally:
-            # Always clean up temp ASS file
             if ass_path.exists():
                 ass_path.unlink(missing_ok=True)
 
