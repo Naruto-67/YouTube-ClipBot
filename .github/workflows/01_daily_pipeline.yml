@@ -44,9 +44,11 @@ jobs:
             ffmpeg \
             fonts-liberation \
             libopencv-dev \
-            python3-opencv \
-            nodejs
+            python3-opencv
           ffmpeg -version | head -1
+          # Install Node.js 20 from NodeSource (apt ships Node 18, too old for yt-dlp EJS)
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
           node --version
 
       - name: Install Python dependencies
