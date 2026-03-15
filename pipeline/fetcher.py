@@ -315,7 +315,10 @@ def download_video(video: Dict) -> Optional[Path]:
         "--output", out_template,
         "--no-playlist",
         "--merge-output-format", "mp4",
-        # NOTE: --quiet and --no-warnings removed so errors are visible in logs
+        # Use nodejs as the JS runtime for solving YouTube's n-challenge.
+        # The yt-dlp-ejs scripts (installed via yt-dlp[default]) handle
+        # the actual challenge solving; this tells yt-dlp which runtime to use.
+        "--js-runtimes", "node",
     ] + cookie_args
 
     for attempt in range(2):
