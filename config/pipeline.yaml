@@ -31,9 +31,18 @@ clips_per_video_tiers:
 # ── Manual queue ────────────────────────────────────────────
 manual_queue_file: "config/manual_queue.yaml"
 
-# ── Chunked transcription ────────────────────────────────────
-chunk_duration_minutes: 15
-chunk_overlap_minutes: 2
+# ── Transcription ────────────────────────────────────────────
+# Primary: youtube-transcript-api (instant, no download needed)
+# Fallback: yt-dlp full download + faster-whisper (used when captions unavailable)
+prefer_captions: true             # Try YouTube caption API first
+chunk_duration_minutes: 15        # Only used for Whisper fallback
+chunk_overlap_minutes: 2          # Only used for Whisper fallback
+
+# ── Segment download (used at render time) ───────────────────
+# Instead of re-downloading the full video to render a clip,
+# only download the specific segment + a buffer before the clip
+# for natural context/lead-in.
+transcript_buffer_seconds: 6      # Seconds of lead-in before clip start
 
 # ── Clip selection ──────────────────────────────────────────
 min_clip_seconds: 30
