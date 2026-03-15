@@ -20,17 +20,131 @@ def _get_model():
     return _model
 
 
+# ── Primary: YouTube Transcript API ──────────────────────────────────────
+
+def get_transcript_via_api(video_id: str,
+                            video_duration_sec: float) -> Optional[Dict]:
+    """
+    Fetch transcript via YouTube's caption API using youtube-transcript-api.
+
+    Returns the same word-dict format as Whisper transcription so the rest
+    of the pipeline is completely unaware of the source.
+
+    Prefer manual captions → auto-generated captions → None (triggers fallback).
+
+    Why this works when yt-dlp sometimes fails:
+      - Captions are fetched from a lightweight JSON endpoint, not the CDN
+      - No large video file download → Azure IPs are not blocked for this
+    """
+    try:
+        from youtube_transcript_api import (
+            YouTubeTranscriptApi,
+            TranscriptsDisabled,
+            NoTranscriptFound,
+        )
+
+        # Fetch available transcripts, prefer English manual then auto
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+        transcript = None
+        try:
+            # Try manual English first (most accurate)
+            transcript = transcript_list.find_manually_created_transcript(["en"])
+        except NoTranscriptFound:
+            pass
+
+        if transcript is None:
+            try:
+                # Fall back to auto-generated English
+                transcript = transcript_list.find_generated_transcript(["en"])
+            except NoTranscriptFound:
+                pass
+
+        if transcript is None:
+            print(f"ℹ️  No English captions available for {video_id} — will use Whisper")
+            return None
+
+        raw = transcript.fetch()
+        if not raw:
+            return None
+
+        result = _adapt_caption_segments(raw, video_duration_sec)
+        if result:
+            word_count = len(result["words"])
+            caption_type = "manual" if transcript.is_generated is False else "auto-generated"
+            print(f"✅ Captions fetched ({caption_type}): {word_count} words, "
+                  f"{video_duration_sec:.0f}s")
+        return result
+
+    except Exception as e:
+        err_name = type(e).__name__
+        if "TranscriptsDisabled" in err_name or "NoTranscriptFound" in err_name:
+            print(f"ℹ️  Captions disabled/unavailable for {video_id} — will use Whisper")
+        else:
+            print(f"⚠️  Caption API error for {video_id}: {e} — will use Whisper")
+        return None
+
+
+def _adapt_caption_segments(segments: List[Dict],
+                              video_duration_sec: float) -> Optional[Dict]:
+    """
+    Convert youtube-transcript-api segment format → ClipBot word-dict format.
+
+    API format:  [{"text": "hey guys", "start": 0.5, "duration": 1.8}, ...]
+    ClipBot format: {"words": [{"word": "hey", "start": 0.5, "end": 0.95,
+                                 "confidence": 1.0}, ...],
+                      "text": "...", "language": "en", "duration": 1806.0}
+
+    Word timestamps within each segment are distributed evenly — sufficient
+    for clip selection (uses 10s blocks) and caption rendering.
+    """
+    words = []
+
+    for segment in segments:
+        text = segment.get("text", "").strip()
+        seg_start = float(segment.get("start", 0))
+        seg_duration = float(segment.get("duration", 1.0))
+        seg_end = seg_start + seg_duration
+
+        seg_words = [w for w in text.split() if w]
+        if not seg_words:
+            continue
+
+        word_duration = seg_duration / len(seg_words)
+
+        for i, word in enumerate(seg_words):
+            w_start = round(seg_start + i * word_duration, 3)
+            w_end = round(min(w_start + word_duration, seg_end), 3)
+            words.append({
+                "word": word,
+                "start": w_start,
+                "end": w_end,
+                "confidence": 1.0,  # captions are authoritative
+            })
+
+    if not words:
+        return None
+
+    return {
+        "words": words,
+        "text": " ".join(w["word"] for w in words),
+        "language": "en",
+        "duration": video_duration_sec,
+    }
+
+
+# ── Fallback: Whisper (full video download required) ─────────────────────
+
 def transcribe(video_path: Path) -> Optional[Dict]:
     """
-    Transcribe video — auto-selects chunked or single-pass based on duration.
-    Returns unified transcript dict regardless of method used.
+    Whisper transcription — used as fallback when captions are unavailable.
+    Auto-selects chunked or single-pass based on duration.
     """
     from engine.config_manager import config_manager
     cfg = config_manager.pipeline
     chunk_mins = cfg.get("chunk_duration_minutes", 15)
     overlap_mins = cfg.get("chunk_overlap_minutes", 2)
 
-    # Quick duration probe
     duration = _probe_duration(video_path)
     if duration is None:
         duration = 0
@@ -58,7 +172,7 @@ def _probe_duration(video_path: Path) -> Optional[float]:
 
 
 def _transcribe_single(video_path: Path) -> Optional[Dict]:
-    """Standard single-pass transcription."""
+    """Standard single-pass Whisper transcription."""
     try:
         model = _get_model()
         print(f"🎙️  Transcribing {video_path.name}...")
@@ -97,7 +211,6 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
     overlap_sec = overlap_mins * 60
     step_sec = chunk_sec - overlap_sec
 
-    # Build chunk time ranges
     chunks = []
     start = 0.0
     while start < total_duration:
@@ -116,7 +229,6 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
     for i, (chunk_start, chunk_end) in enumerate(chunks):
         print(f"   Chunk {i+1}/{len(chunks)}: {chunk_start/60:.1f}m → {chunk_end/60:.1f}m")
         try:
-            # Extract chunk to temp file
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
                 tmp_path = tmp.name
 
@@ -135,7 +247,6 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
             chunk_words = []
             for seg in segments:
                 for w in (seg.words or []):
-                    # Convert chunk-relative timestamps to absolute
                     abs_start = round(chunk_start + w.start, 3)
                     abs_end = round(chunk_start + w.end, 3)
                     chunk_words.append({
@@ -145,8 +256,6 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
                         "confidence": round(w.probability, 3),
                     })
 
-            # Deduplicate: only keep words that start after last_end_time
-            # (prevents overlap region words from appearing twice)
             new_words = [w for w in chunk_words if w["start"] >= last_end_time - 0.5]
             all_words.extend(new_words)
             if new_words:
@@ -165,7 +274,6 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
         db.log_failure("transcriber", "All chunks returned no words", str(video_path))
         return None
 
-    # Sort by timestamp (should already be sorted, but defensive)
     all_words.sort(key=lambda w: w["start"])
     full_text = " ".join(w["word"] for w in all_words)
 
@@ -173,6 +281,8 @@ def _transcribe_chunked(video_path: Path, total_duration: float,
     return {"words": all_words, "text": full_text,
             "language": "en", "duration": total_duration}
 
+
+# ── Shared utilities (unchanged) ──────────────────────────────────────────
 
 def format_transcript_for_ai(transcript: Dict, max_chars: int = 12000) -> str:
     """Format word timestamps into compact lines for the AI prompt."""
