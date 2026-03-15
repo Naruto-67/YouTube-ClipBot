@@ -1,6 +1,7 @@
 # engine/llm_client.py
 import json
 import os
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -47,6 +48,9 @@ class LLMClient:
                 system_instruction=system,
                 temperature=0.3,
                 max_output_tokens=2000,
+                # Force pure JSON output — eliminates markdown fences and
+                # thinking-model preamble that cause parse failures.
+                response_mime_type="application/json",
             ),
         )
         return response.text
@@ -68,47 +72,52 @@ class LLMClient:
     def _parse_json(self, text: str) -> Optional[Dict]:
         """
         Extract JSON from AI response. Handles:
-        - Pure JSON responses
+        - Pure JSON responses (normal path after response_mime_type fix)
         - JSON wrapped in markdown fences
-        - JSON buried inside explanatory text
+        - JSON buried inside explanatory / thinking text
         """
         if not text:
             return None
 
-        # Strip markdown fences
         t = text.strip()
-        if t.startswith("```"):
-            lines = t.split("\n")
-            inner_lines = []
-            for line in lines[1:]:
-                if line.strip() == "```":
-                    break
-                inner_lines.append(line)
-            t = "\n".join(inner_lines).strip()
 
-        # Direct parse
+        # Strip markdown fences (```json ... ``` or ``` ... ```)
+        if t.startswith("```"):
+            t = re.sub(r'^```(?:json)?\s*\n?', '', t)
+            t = re.sub(r'\n?```\s*$', '', t)
+            t = t.strip()
+
+        # Direct parse — fastest path
         try:
             return json.loads(t)
         except json.JSONDecodeError:
             pass
 
-        # Find first JSON object or array
+        # Strip <thinking>…</thinking> blocks (Gemini 2.5 thinking models)
+        t_no_think = re.sub(r'<thinking>.*?</thinking>', '', t,
+                            flags=re.DOTALL).strip()
+        try:
+            return json.loads(t_no_think)
+        except json.JSONDecodeError:
+            pass
+
+        # Find the last (outermost) JSON object or array in the text.
+        # We scan from the END so we skip any preamble/thinking text.
         for start_char, end_char in [('{', '}'), ('[', ']')]:
-            start = t.find(start_char)
-            if start == -1:
-                continue
-            # Find matching close
-            depth = 0
-            for i, c in enumerate(t[start:], start):
-                if c == start_char:
-                    depth += 1
-                elif c == end_char:
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            return json.loads(t[start:i + 1])
-                        except json.JSONDecodeError:
-                            break
+            # Find all candidate start positions, prefer the last one
+            positions = [i for i, c in enumerate(t_no_think) if c == start_char]
+            for start_pos in reversed(positions):
+                depth = 0
+                for i, c in enumerate(t_no_think[start_pos:], start_pos):
+                    if c == start_char:
+                        depth += 1
+                    elif c == end_char:
+                        depth -= 1
+                        if depth == 0:
+                            try:
+                                return json.loads(t_no_think[start_pos:i + 1])
+                            except json.JSONDecodeError:
+                                break
 
         return None
 
@@ -161,7 +170,10 @@ class LLMClient:
 
                 result = self._parse_json(raw)
                 if result is None:
-                    print(f"⚠️  JSON parse failed for {model_name} response.")
+                    # Log a snippet of the raw response to aid debugging
+                    snippet = (raw or "")[:200].replace("\n", " ")
+                    print(f"⚠️  JSON parse failed for {model_name} response. "
+                          f"Raw snippet: {snippet!r}")
                     db.log_ai_call(model_name, call_type, False, parse_failed=True)
                     if attempt < max_retries:
                         time.sleep(2 ** attempt)
@@ -180,8 +192,6 @@ class LLMClient:
                 db.log_ai_call(model_name, call_type, False)
 
                 if is_rate_limit:
-                    # Mark this model as temporarily unavailable by burning its RPM
-                    # (it will naturally clear after 60 seconds)
                     print(f"🔄 Rate limit hit on {model_name} — escalating to next model")
 
                 if attempt < max_retries:
