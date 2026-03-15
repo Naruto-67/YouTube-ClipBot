@@ -315,11 +315,7 @@ def download_video(video: Dict) -> Optional[Path]:
         "--output", out_template,
         "--no-playlist",
         "--merge-output-format", "mp4",
-        # Use mweb (mobile web) player client to bypass YouTube's JS n-challenge.
-        # Unlike the ios client, mweb supports --cookies so both can coexist.
-        # The web client requires a JS solver; mweb uses a simpler auth flow
-        # that doesn't trigger it.
-        "--extractor-args", "youtube:player_client=mweb",
+        # NOTE: --quiet and --no-warnings removed so errors are visible in logs
     ] + cookie_args
 
     for attempt in range(2):
