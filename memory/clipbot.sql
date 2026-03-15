@@ -9,22 +9,6 @@ CREATE TABLE ai_reliability (
                     validation_failed INTEGER DEFAULT 0,
                     confidence      REAL DEFAULT 0.0
                 );
-INSERT INTO "ai_reliability" VALUES(1,'2026-03-15T15:00:12.038804','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(2,'2026-03-15T15:00:23.463362','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(3,'2026-03-15T15:00:31.966669','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(4,'2026-03-15T15:00:45.239752','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(5,'2026-03-15T15:00:54.295719','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(6,'2026-03-15T15:01:06.826240','gemini-2.5-flash','clip_selection',0,1,0,0.0);
-INSERT INTO "ai_reliability" VALUES(7,'2026-03-15T15:01:55.195096','gemini-2.5-flash','clip_selection',1,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(8,'2026-03-15T15:02:13.414870','gemini-2.5-flash','clip_selection',1,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(9,'2026-03-15T15:02:30.257059','gemini-2.5-flash','clip_selection',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(10,'2026-03-15T15:02:33.446721','gemini-2.5-flash','clip_selection',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(11,'2026-03-15T15:03:09.907370','gemini-2.5-flash','clip_selection',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(12,'2026-03-15T15:03:13.090342','gemini-2.5-flash','clip_selection',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(13,'2026-03-15T15:03:53.461509','gemini-2.5-flash','seo_generation',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(14,'2026-03-15T15:03:56.569533','gemini-2.5-flash','seo_generation',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(15,'2026-03-15T15:03:56.678684','gemini-2.5-flash','quality_check',0,0,0,0.0);
-INSERT INTO "ai_reliability" VALUES(16,'2026-03-15T15:03:59.862150','gemini-2.5-flash','quality_check',0,0,0,0.0);
 CREATE TABLE analytics_history (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     recorded_at     TEXT NOT NULL,
@@ -56,44 +40,6 @@ CREATE TABLE failures (
                     error           TEXT NOT NULL,
                     context         TEXT
                 );
-INSERT INTO "failures" VALUES(1,'2026-03-15T15:01:06.827589','clip_selector','No clips from AI','AoN1K4c7VKE');
-INSERT INTO "failures" VALUES(2,'2026-03-15T15:01:55.247408','fetcher.fetch_viral_videos','EOF occurred in violation of protocol (_ssl.c:2437)','Traceback (most recent call last):
-  File "/home/runner/work/YouTube-ClipBot/YouTube-ClipBot/pipeline/fetcher.py", line 194, in fetch_viral_videos
-    ).execute()
-      ^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/googleapiclient/_helpers.py", line 130, in positional_wrapper
-    return wrapped(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/googleapiclient/http.py", line 923, in execute
-    resp, content = _retry_request(
-                    ^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/googleapiclient/http.py", line 222, in _retry_request
-    raise exception
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/googleapiclient/http.py", line 191, in _retry_request
-    resp, content = http.request(uri, method, *args, **kwargs)
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/google_auth_httplib2.py", line 218, in request
-    response, content = self.http.request(
-                        ^^^^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/httplib2/__init__.py", line 1727, in request
-    (response, content) = self._request(
-                          ^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/httplib2/__init__.py", line 1447, in _request
-    (response, content) = self._conn_request(conn, request_uri, method, body, headers)
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/site-packages/httplib2/__init__.py", line 1370, in _conn_request
-    conn.request(method, request_uri, body, headers)
-  File "/opt/hostedtoolcache/Python/3.11.14/x64/lib/python3.11/http/client.py", line 1303, in request
-    self._se');
-INSERT INTO "failures" VALUES(3,'2026-03-15T15:02:13.416350','clip_selector','No clips from AI','3GNyw4uaAqU');
-INSERT INTO "failures" VALUES(4,'2026-03-15T15:02:33.448472','llm_client','All 3 attempts failed','clip_selection');
-INSERT INTO "failures" VALUES(5,'2026-03-15T15:02:33.450120','clip_selector','No clips from AI','IJkB-oapuks');
-INSERT INTO "failures" VALUES(6,'2026-03-15T15:03:13.092190','llm_client','All 3 attempts failed','clip_selection');
-INSERT INTO "failures" VALUES(7,'2026-03-15T15:03:13.093770','clip_selector','No clips from AI','9BsQpGhwVAY');
-INSERT INTO "failures" VALUES(8,'2026-03-15T15:03:17.420566','voiceover','403, message=''Invalid response status'', url=''wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC=67761E9D092F32097C224E059925271555EC876F7AFCBD6EB88549C0C68C1728&Sec-MS-GEC-Version=1-130.0.2849.68&ConnectionId=e62fd35c69634738a216c412ac532fc5''','status'', url=''wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC=67761E9D092F32097C224E059925271555EC876F7AFCBD6EB88549C0C68C1728&Sec-MS-GEC-Version=1-130.0.2849.68&ConnectionId=e62fd35c69634738a216c412ac532fc5''
-');
-INSERT INTO "failures" VALUES(9,'2026-03-15T15:03:56.571506','llm_client','All 3 attempts failed','seo_generation');
-INSERT INTO "failures" VALUES(10,'2026-03-15T15:03:59.864228','llm_client','All 3 attempts failed','quality_check');
 CREATE TABLE manual_queue (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     url             TEXT NOT NULL UNIQUE,
@@ -114,11 +60,6 @@ CREATE TABLE processed_videos (
                     clips_made      INTEGER DEFAULT 0,
                     processed_at    TEXT NOT NULL
                 );
-INSERT INTO "processed_videos" VALUES('AoN1K4c7VKE','MrBeast','Survive 30 Days Stranded With Your Ex, Win $250,000','no_clips',0,'2026-03-15T15:01:06.829101');
-INSERT INTO "processed_videos" VALUES('hjkbqeWQAM8','MrBeast','Every Step You Take, Win $1,000','banked',1,'2026-03-15T15:01:55.198713');
-INSERT INTO "processed_videos" VALUES('3GNyw4uaAqU','MrBeast','Subscribe for an iPhone','no_clips',0,'2026-03-15T15:02:13.417729');
-INSERT INTO "processed_videos" VALUES('IJkB-oapuks','MrBeast','Giving Away $1,000,000 in Gifts To My Subscribers','no_clips',0,'2026-03-15T15:02:33.451504');
-INSERT INTO "processed_videos" VALUES('9BsQpGhwVAY','Mark Rober','pride comes before flop','no_clips',0,'2026-03-15T15:03:13.095347');
 CREATE TABLE quota_log (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     logged_at       TEXT NOT NULL,
@@ -127,25 +68,6 @@ CREATE TABLE quota_log (
                     units_used      INTEGER DEFAULT 1,
                     operation       TEXT
                 );
-INSERT INTO "quota_log" VALUES(1,'2026-03-15T14:35:47.550833','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(2,'2026-03-15T14:35:47.655305','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(3,'2026-03-15T14:35:47.858327','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(4,'2026-03-15T14:35:48.066890','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(5,'2026-03-15T15:00:12.036764','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(6,'2026-03-15T15:00:23.461632','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(7,'2026-03-15T15:00:31.964941','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(8,'2026-03-15T15:00:45.237887','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(9,'2026-03-15T15:00:54.293955','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(10,'2026-03-15T15:01:06.824454','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(11,'2026-03-15T15:01:55.193363','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(12,'2026-03-15T15:01:56.092187','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(13,'2026-03-15T15:01:56.283639','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(14,'2026-03-15T15:01:56.458809','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(15,'2026-03-15T15:02:13.413246','ai_gemini','gemini-2.5-flash',1,'generate');
-INSERT INTO "quota_log" VALUES(16,'2026-03-15T15:02:33.536648','youtube',NULL,1,'channels_list');
-INSERT INTO "quota_log" VALUES(17,'2026-03-15T15:02:33.744200','youtube',NULL,1,'playlist_items_list');
-INSERT INTO "quota_log" VALUES(18,'2026-03-15T15:02:33.910037','youtube',NULL,1,'videos_list');
-INSERT INTO "quota_log" VALUES(19,'2026-03-15T15:04:02.392913','youtube',NULL,1600,'videos_insert');
 CREATE TABLE uploaded_shorts (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     youtube_id      TEXT UNIQUE,
