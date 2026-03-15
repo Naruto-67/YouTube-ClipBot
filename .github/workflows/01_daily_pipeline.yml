@@ -44,8 +44,10 @@ jobs:
             ffmpeg \
             fonts-liberation \
             libopencv-dev \
-            python3-opencv
+            python3-opencv \
+            nodejs
           ffmpeg -version | head -1
+          node --version
 
       - name: Install Python dependencies
         run: |
