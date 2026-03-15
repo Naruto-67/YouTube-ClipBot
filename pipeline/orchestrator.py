@@ -1,6 +1,9 @@
 # pipeline/orchestrator.py
 """
 Master pipeline orchestrator — updated with:
+  - youtube-transcript-api as primary transcription (instant, no download)
+  - Whisper fallback when captions unavailable
+  - Segment-only video download at render time (replaces full video re-download)
   - Manual queue (processed first, highest priority)
   - Clip bank (bank all clips from a video, drip-feed daily)
   - Dynamic clip count per video based on duration
@@ -17,8 +20,13 @@ Run order each day:
   4. Discovery (if needed):
      - Normal window first (30 days)
      - If still low → backlog window (90 days)
-  5. For each discovered video: download → transcribe → select ALL clips → save to bank
-  6. Upload max_clips_per_day from bank
+  5. For each discovered video:
+       → Try caption API first (instant, no download)
+       → Fall back to yt-dlp full download + Whisper if captions unavailable
+       → Select ALL clips → save to bank
+  6. Upload max_clips_per_day from bank:
+       → Download only the clip segment + buffer (not full video)
+       → Render → Upload
   7. Send daily report
 """
 import traceback
@@ -133,7 +141,6 @@ class Orchestrator:
             video = fetcher.resolve_manual_queue_entry(entry, youtube_service)
             if video is None:
                 continue
-            # override_count from manual entry (0 = use dynamic)
             override = entry.get("max_clips", 0)
             clips_banked = self._process_video_to_bank(
                 video, youtube_service, override_count=override
@@ -149,7 +156,6 @@ class Orchestrator:
         creators = config_manager.get_active_source_creators()
         print(f"🔍 Discovering from: {[c['name'] for c in creators]}")
 
-        # First pass — normal window
         new_clips = 0
         for creator in creators:
             videos = fetcher.fetch_viral_videos(creator, youtube_service,
@@ -157,7 +163,6 @@ class Orchestrator:
             for video in videos:
                 new_clips += self._process_video_to_bank(video, youtube_service)
 
-        # Second pass — backlog extension if still low
         if db.get_bank_count("pending") < bank_threshold:
             print(f"📦 Still low after normal discovery — extending to backlog window")
             notifier.send_info(
@@ -178,18 +183,24 @@ class Orchestrator:
     def _process_video_to_bank(self, video: Dict, youtube_service,
                                 override_count: int = 0) -> int:
         """
-        Download → transcribe → select ALL clips → save to bank.
-        Does NOT upload anything — that happens separately.
+        Get transcript → select ALL clips → save to bank.
+
+        Transcript strategy:
+          1. Try youtube-transcript-api (instant, no download, no CDN)
+          2. If unavailable → yt-dlp full download + Whisper (old path)
+
+        Does NOT upload anything — that happens separately in _upload_from_bank.
         Returns number of clips saved to bank.
         """
         vid_id = video["id"]
         title = video.get("title", "Unknown")[:60]
         creator_name = video.get("creator_name", "Unknown")
+        duration_sec = video.get("duration_sec", 0)
 
         print(f"\n{'─' * 50}")
         print(f"🎬 Processing: {title}")
         print(f"   Creator: {creator_name} | "
-              f"Duration: {video.get('duration_sec', 0)/60:.1f}m | "
+              f"Duration: {duration_sec/60:.1f}m | "
               f"Views: {video.get('views', 0):,}")
 
         self.stats["videos_checked"] += 1
@@ -197,16 +208,35 @@ class Orchestrator:
         clips_banked = 0
 
         try:
-            source_path = fetcher.download_video(video)
-            if source_path is None:
-                db.mark_video_processed(vid_id, creator_name, title, "download_failed")
-                return 0
+            # ── Step 1: Get transcript ────────────────────────────────
+            cfg = config_manager.pipeline
+            prefer_captions = cfg.get("prefer_captions", True)
+            transcript_result = None
 
-            transcript_result = transcriber.transcribe(source_path)
+            if prefer_captions:
+                print(f"📝 Trying YouTube caption API...")
+                transcript_result = transcriber.get_transcript_via_api(
+                    vid_id, duration_sec
+                )
+
             if transcript_result is None:
-                db.mark_video_processed(vid_id, creator_name, title, "transcription_failed")
-                return 0
+                # Caption API failed or disabled — fall back to Whisper
+                if prefer_captions:
+                    print(f"⬇️  Captions unavailable — falling back to "
+                          f"yt-dlp + Whisper (this will take ~{duration_sec/60:.0f} min)")
+                source_path = fetcher.download_video(video)
+                if source_path is None:
+                    db.mark_video_processed(vid_id, creator_name, title,
+                                            "download_failed")
+                    return 0
 
+                transcript_result = transcriber.transcribe(source_path)
+                if transcript_result is None:
+                    db.mark_video_processed(vid_id, creator_name, title,
+                                            "transcription_failed")
+                    return 0
+
+            # ── Step 2: Select clips ──────────────────────────────────
             clips = clip_selector.select_clips(
                 video, transcript_result, override_count=override_count
             )
@@ -214,7 +244,7 @@ class Orchestrator:
                 db.mark_video_processed(vid_id, creator_name, title, "no_clips")
                 return 0
 
-            # Save ALL clips to bank (with their transcript words)
+            # ── Step 3: Save ALL clips to bank ────────────────────────
             source_url = video.get("url",
                 f"https://www.youtube.com/watch?v={vid_id}")
 
@@ -235,7 +265,8 @@ class Orchestrator:
                 clips_banked += 1
 
             self.stats["clips_banked"] += clips_banked
-            db.mark_video_processed(vid_id, creator_name, title, "banked", clips_banked)
+            db.mark_video_processed(vid_id, creator_name, title,
+                                    "banked", clips_banked)
             print(f"🏦 Banked {clips_banked} clips from: {title}")
 
         except Exception as e:
@@ -246,17 +277,24 @@ class Orchestrator:
             print(f"❌ Error processing {title}: {e}")
 
         finally:
+            # Only clean up if we actually downloaded the full video
             fetcher.cleanup_video(source_path)
 
         return clips_banked
 
     # ── Upload from bank ──────────────────────────────────────────────────
 
-    def _upload_from_bank(self, max_clips: int, youtube_service, publish_times: List[str]):
+    def _upload_from_bank(self, max_clips: int, youtube_service,
+                           publish_times: List[str]):
         """
         Pull up to max_clips pending clips from the bank.
-        For each: re-download source if needed → render → upload.
-        Groups by source_video_id so we download each source video at most once.
+        For each: download the specific clip segment (not full video)
+        → render → upload.
+
+        Using segment downloads instead of full video downloads:
+        - ~50-60s file vs ~300MB full video
+        - Much less likely to hit CDN IP blocks on Azure
+        - No grouping by source needed since each segment is different timestamps
         """
         pending_clips = db.get_pending_bank_clips(limit=max_clips)
         if not pending_clips:
@@ -264,59 +302,57 @@ class Orchestrator:
 
         print(f"\n📤 Uploading {len(pending_clips)} clips from bank")
 
-        # Group clips by source video to minimise re-downloads
-        by_source: Dict[str, List[Dict]] = {}
-        for clip in pending_clips:
-            src_id = clip["source_video_id"]
-            by_source.setdefault(src_id, []).append(clip)
+        cfg = config_manager.pipeline
+        buffer_sec = float(cfg.get("transcript_buffer_seconds", 6))
 
         uploads_done = 0
-        for src_id, clips in by_source.items():
+        for bank_clip in pending_clips:
             if uploads_done >= max_clips:
                 break
 
-            source_path: Optional[Path] = None
+            src_id = bank_clip["source_video_id"]
+            clip_start = bank_clip["start_seconds"]
+            clip_end = bank_clip["end_seconds"]
+
+            segment_path: Optional[Path] = None
             try:
-                # Re-download source video
-                video_stub = {
-                    "id": src_id,
-                    "title": clips[0].get("title", ""),
-                    "creator_name": clips[0]["creator_name"],
-                    "url": clips[0].get("source_video_url",
-                           f"https://www.youtube.com/watch?v={src_id}"),
-                }
-                source_path = fetcher.download_video(video_stub)
-                if source_path is None:
-                    for c in clips:
-                        db.mark_bank_clip_failed(c["id"])
+                # Download only the clip segment + lead-in buffer
+                segment_path, segment_start = fetcher.download_clip_segment(
+                    video_id=src_id,
+                    clip_start=clip_start,
+                    clip_end=clip_end,
+                    buffer_sec=buffer_sec,
+                )
+
+                if segment_path is None:
+                    print(f"  ❌ Segment download failed for clip "
+                          f"{clip_start}s→{clip_end}s from {src_id}")
+                    db.mark_bank_clip_failed(bank_clip["id"])
                     continue
 
-                for bank_clip in clips:
-                    if uploads_done >= max_clips:
-                        break
+                clip_spec = {
+                    "start_seconds": clip_start,
+                    "end_seconds": clip_end,
+                    "clip_type": bank_clip["clip_type"],
+                    "hook_text": bank_clip["hook_text"],
+                    "confidence": bank_clip["confidence"],
+                    "reason": bank_clip.get("reason", ""),
+                }
 
-                    clip_spec = {
-                        "start_seconds": bank_clip["start_seconds"],
-                        "end_seconds": bank_clip["end_seconds"],
-                        "clip_type": bank_clip["clip_type"],
-                        "hook_text": bank_clip["hook_text"],
-                        "confidence": bank_clip["confidence"],
-                        "reason": bank_clip.get("reason", ""),
-                    }
-
-                    success = self._render_and_upload(
-                        bank_clip_id=bank_clip["id"],
-                        clip=clip_spec,
-                        source_path=source_path,
-                        transcript_words=bank_clip["transcript_words"],
-                        creator_name=bank_clip["creator_name"],
-                        source_video_id=src_id,
-                        youtube_service=youtube_service,
-                        publish_times=publish_times,
-                    )
-                    if success:
-                        uploads_done += 1
-                        self.stats["uploaded"] += 1
+                success = self._render_and_upload(
+                    bank_clip_id=bank_clip["id"],
+                    clip=clip_spec,
+                    source_path=segment_path,
+                    segment_start=segment_start,
+                    transcript_words=bank_clip["transcript_words"],
+                    creator_name=bank_clip["creator_name"],
+                    source_video_id=src_id,
+                    youtube_service=youtube_service,
+                    publish_times=publish_times,
+                )
+                if success:
+                    uploads_done += 1
+                    self.stats["uploaded"] += 1
 
             except Exception as e:
                 self.stats["errors"] += 1
@@ -324,10 +360,11 @@ class Orchestrator:
                                traceback.format_exc()[-500:])
                 print(f"❌ Bank upload error for {src_id}: {e}")
             finally:
-                fetcher.cleanup_video(source_path)
+                fetcher.cleanup_video(segment_path)
 
     def _render_and_upload(self, bank_clip_id: int, clip: Dict,
-                            source_path: Path, transcript_words: List[Dict],
+                            source_path: Path, segment_start: float,
+                            transcript_words: List[Dict],
                             creator_name: str, source_video_id: str,
                             youtube_service, publish_times: List[str]) -> bool:
         clip_id = f"{source_video_id}_{int(clip['start_seconds'])}"
@@ -342,6 +379,7 @@ class Orchestrator:
                 clip=clip,
                 transcript_words=transcript_words,
                 hook_audio_path=hook_path,
+                segment_start=segment_start,   # ← tells renderer where file starts
             )
             if short_path is None:
                 db.mark_bank_clip_failed(bank_clip_id)
@@ -355,8 +393,8 @@ class Orchestrator:
                 return False
             print(f"  ✅ Video QC: {reason}")
 
-            # Build minimal transcript dict for SEO
-            fake_transcript = {"words": transcript_words, "duration": clip["end_seconds"]}
+            fake_transcript = {"words": transcript_words,
+                                "duration": clip["end_seconds"]}
             seo = seo_generator.generate_seo(clip, fake_transcript, creator_name)
 
             transcript_excerpt = " ".join(w["word"] for w in transcript_words[:80])
