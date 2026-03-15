@@ -43,25 +43,45 @@ def get_transcript_via_api(video_id: str,
             NoTranscriptFound,
         )
 
-        # Fetch available transcripts, prefer English manual then auto
+        # Fetch available transcripts
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
+        # Log all available transcripts for debugging
+        available = [(t.language_code, "manual" if not t.is_generated else "auto")
+                     for t in transcript_list]
+        print(f"   Available transcripts: {available}")
+
+        # Language preference order — covers all common English variants
+        en_variants = ["en", "en-US", "en-GB", "en-AU", "en-CA"]
+
         transcript = None
+
+        # 1. Try manual English (any variant)
         try:
-            # Try manual English first (most accurate)
-            transcript = transcript_list.find_manually_created_transcript(["en"])
+            transcript = transcript_list.find_manually_created_transcript(en_variants)
         except NoTranscriptFound:
             pass
 
+        # 2. Try auto-generated English (any variant)
         if transcript is None:
             try:
-                # Fall back to auto-generated English
-                transcript = transcript_list.find_generated_transcript(["en"])
+                transcript = transcript_list.find_generated_transcript(en_variants)
             except NoTranscriptFound:
                 pass
 
+        # 3. Try any transcript and translate to English
         if transcript is None:
-            print(f"ℹ️  No English captions available for {video_id} — will use Whisper")
+            try:
+                # Get the first available transcript regardless of language
+                all_transcripts = list(transcript_list)
+                if all_transcripts:
+                    transcript = all_transcripts[0].translate("en")
+                    print(f"   Translating {all_transcripts[0].language_code} → en")
+            except Exception:
+                pass
+
+        if transcript is None:
+            print(f"ℹ️  No captions found for {video_id} — will use Whisper")
             return None
 
         raw = transcript.fetch()
@@ -71,17 +91,25 @@ def get_transcript_via_api(video_id: str,
         result = _adapt_caption_segments(raw, video_duration_sec)
         if result:
             word_count = len(result["words"])
-            caption_type = "manual" if transcript.is_generated is False else "auto-generated"
-            print(f"✅ Captions fetched ({caption_type}): {word_count} words, "
-                  f"{video_duration_sec:.0f}s")
+            caption_type = "manual" if not transcript.is_generated else "auto-generated"
+            print(f"✅ Captions fetched ({caption_type}, {transcript.language_code}): "
+                  f"{word_count} words, {video_duration_sec:.0f}s")
         return result
 
     except Exception as e:
+        # Always log the real exception type and message so we can diagnose issues
         err_name = type(e).__name__
-        if "TranscriptsDisabled" in err_name or "NoTranscriptFound" in err_name:
-            print(f"ℹ️  Captions disabled/unavailable for {video_id} — will use Whisper")
+        err_msg = str(e)
+        if "TranscriptsDisabled" in err_name:
+            print(f"ℹ️  Captions disabled for {video_id} ({err_name}) — will use Whisper")
+        elif "NoTranscriptFound" in err_name:
+            print(f"ℹ️  No transcript found for {video_id} ({err_name}) — will use Whisper")
+        elif "VideoUnavailable" in err_name:
+            print(f"⚠️  Video unavailable: {video_id} ({err_name}) — will use Whisper")
         else:
-            print(f"⚠️  Caption API error for {video_id}: {e} — will use Whisper")
+            # Unknown error — log fully so we can diagnose
+            print(f"⚠️  Caption API failed for {video_id}: [{err_name}] {err_msg[:200]} "
+                  f"— will use Whisper")
         return None
 
 
