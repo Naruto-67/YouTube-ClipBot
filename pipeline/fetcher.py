@@ -301,6 +301,11 @@ def download_video(video: Dict) -> Optional[Path]:
         else []
     )
 
+    if cookie_args:
+        print(f"🍪 Using cookies from: {cookies_path}")
+    else:
+        print(f"⚠️  No cookie file found at '{cookies_path}' — downloading without auth")
+
     cmd = [
         sys.executable, "-m", "yt_dlp",
         f"https://www.youtube.com/watch?v={vid_id}",
@@ -308,13 +313,16 @@ def download_video(video: Dict) -> Optional[Path]:
         f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]"
         f"/best[height<={quality}][ext=mp4]/best",
         "--output", out_template,
-        "--no-playlist", "--no-warnings", "--quiet",
+        "--no-playlist",
         "--merge-output-format", "mp4",
+        # NOTE: --quiet and --no-warnings removed so errors are visible in logs
     ] + cookie_args
 
     for attempt in range(2):
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+            result = subprocess.run(
+                cmd, check=True, capture_output=True, timeout=600, text=True
+            )
             matches = list(TEMP_DIR.glob(f"{vid_id}.*"))
             mp4_files = [f for f in matches if f.suffix == ".mp4"]
             if mp4_files:
@@ -323,18 +331,30 @@ def download_video(video: Dict) -> Optional[Path]:
             other = [f for f in matches if f.suffix in (".mkv", ".webm")]
             if other:
                 return other[0]
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            # Print full yt-dlp error so we can diagnose IP blocks, auth failures etc.
+            stderr_out = (e.stderr or "").strip()
+            stdout_out = (e.stdout or "").strip()
+            error_detail = stderr_out or stdout_out or "no output captured"
             if attempt == 0:
-                print("⚠️  yt-dlp failed — updating and retrying...")
+                print(f"⚠️  yt-dlp failed (attempt 1) — error: {error_detail[:800]}")
+                print("   Updating yt-dlp and retrying...")
                 update_ytdlp()
             else:
-                db.log_failure("fetcher.download", "yt-dlp failed after update", vid_id)
+                print(f"❌ yt-dlp failed (attempt 2) — error: {error_detail[:800]}")
+                db.log_failure(
+                    "fetcher.download",
+                    f"yt-dlp failed after update: {error_detail[:500]}",
+                    vid_id
+                )
                 notifier.send_warning(
                     "Download Failed",
-                    f"Could not download `{video.get('title', vid_id)[:60]}`"
+                    f"Could not download `{video.get('title', vid_id)[:60]}`\n"
+                    f"Error: {error_detail[:200]}"
                 )
                 return None
         except subprocess.TimeoutExpired:
+            print(f"❌ yt-dlp timed out after 600s for {vid_id}")
             db.log_failure("fetcher.download", "Timeout after 600s", vid_id)
             return None
     return None
