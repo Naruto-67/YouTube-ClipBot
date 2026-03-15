@@ -48,6 +48,9 @@ jobs:
             nodejs
           ffmpeg -version | head -1
           node --version
+          # yt-dlp looks for 'node', not 'nodejs' — create the symlink
+          ln -sf /usr/bin/nodejs /usr/local/bin/node
+          node --version
 
       - name: Install Python dependencies
         run: |
