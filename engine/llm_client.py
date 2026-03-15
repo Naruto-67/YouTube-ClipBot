@@ -48,8 +48,10 @@ class LLMClient:
                 system_instruction=system,
                 temperature=0.3,
                 max_output_tokens=2000,
-                # Force pure JSON output — eliminates markdown fences and
+                # Forces pure JSON output — eliminates markdown fences and
                 # thinking-model preamble that cause parse failures.
+                # Gemini 2.5 Flash/Pro are "thinking" models that otherwise
+                # prepend reasoning text before the JSON.
                 response_mime_type="application/json",
             ),
         )
@@ -71,53 +73,74 @@ class LLMClient:
 
     def _parse_json(self, text: str) -> Optional[Dict]:
         """
-        Extract JSON from AI response. Handles:
-        - Pure JSON responses (normal path after response_mime_type fix)
-        - JSON wrapped in markdown fences
-        - JSON buried inside explanatory / thinking text
+        Extract JSON from AI response. Handles every real-world format:
+        - Pure JSON  (normal path after response_mime_type fix)
+        - Markdown fences  ```json ... ``` or ``` ... ```
+        - <thinking> blocks followed by JSON  (Gemini 2.5 thinking models)
+        - Preamble prose with stray { } characters, then JSON
+        - JSON followed by trailing explanation text
+
+        Strategy: scan LEFT TO RIGHT for each '{' or '[', find its matching
+        close bracket, and attempt json.loads on that candidate.  Invalid
+        fragments like {laughing} or {clips} are silently skipped so we
+        always find the first complete, valid JSON in the text.
         """
         if not text:
             return None
 
         t = text.strip()
 
-        # Strip markdown fences (```json ... ``` or ``` ... ```)
+        # 1. Strip markdown fences
         if t.startswith("```"):
             t = re.sub(r'^```(?:json)?\s*\n?', '', t)
             t = re.sub(r'\n?```\s*$', '', t)
             t = t.strip()
 
-        # Direct parse — fastest path
+        # 2. Direct parse — fastest path (handles response_mime_type output)
         try:
             return json.loads(t)
         except json.JSONDecodeError:
             pass
 
-        # Strip <thinking>…</thinking> blocks (Gemini 2.5 thinking models)
-        t_no_think = re.sub(r'<thinking>.*?</thinking>', '', t,
-                            flags=re.DOTALL).strip()
+        # 3. Strip <thinking>...</thinking> blocks
+        t = re.sub(r'<thinking>.*?</thinking>', '', t, flags=re.DOTALL).strip()
+
+        # 4. Direct parse after stripping thinking blocks
         try:
-            return json.loads(t_no_think)
+            return json.loads(t)
         except json.JSONDecodeError:
             pass
 
-        # Find the last (outermost) JSON object or array in the text.
-        # We scan from the END so we skip any preamble/thinking text.
+        # 5. Scan left to right: skip invalid fragments, return first valid JSON
         for start_char, end_char in [('{', '}'), ('[', ']')]:
-            # Find all candidate start positions, prefer the last one
-            positions = [i for i, c in enumerate(t_no_think) if c == start_char]
-            for start_pos in reversed(positions):
+            search_from = 0
+            while True:
+                start_pos = t.find(start_char, search_from)
+                if start_pos == -1:
+                    break
+
+                # Find the matching close bracket via depth tracking
                 depth = 0
-                for i, c in enumerate(t_no_think[start_pos:], start_pos):
+                matched_end = -1
+                for i, c in enumerate(t[start_pos:], start_pos):
                     if c == start_char:
                         depth += 1
                     elif c == end_char:
                         depth -= 1
                         if depth == 0:
-                            try:
-                                return json.loads(t_no_think[start_pos:i + 1])
-                            except json.JSONDecodeError:
-                                break
+                            matched_end = i
+                            break
+
+                if matched_end == -1:
+                    break  # No closing bracket found anywhere
+
+                candidate = t[start_pos:matched_end + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    # This fragment wasn't valid JSON — try the next bracket
+                    search_from = start_pos + 1
+                    continue
 
         return None
 
@@ -170,8 +193,8 @@ class LLMClient:
 
                 result = self._parse_json(raw)
                 if result is None:
-                    # Log a snippet of the raw response to aid debugging
-                    snippet = (raw or "")[:200].replace("\n", " ")
+                    # Log a snippet to aid debugging
+                    snippet = (raw or "")[:300].replace("\n", " ")
                     print(f"⚠️  JSON parse failed for {model_name} response. "
                           f"Raw snippet: {snippet!r}")
                     db.log_ai_call(model_name, call_type, False, parse_failed=True)
