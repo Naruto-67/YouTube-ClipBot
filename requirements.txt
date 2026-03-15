@@ -5,6 +5,7 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 faster-whisper==1.1.1
 yt-dlp[default]
+youtube-transcript-api==0.6.3
 edge-tts==7.0.2
 opencv-python-headless==4.10.0.84
 PyYAML==6.0.2
