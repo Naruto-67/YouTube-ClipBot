@@ -78,6 +78,8 @@ jobs:
           DISCORD_WEBHOOK:       ${{ secrets.DISCORD_WEBHOOK }}
           CLIPBOT_ENABLED:       ${{ vars.CLIPBOT_ENABLED }}
           YT_COOKIES_PATH:       "/tmp/yt-cookies.txt"
+          PYTHONUNBUFFERED:      "1"
+          HF_HUB_VERBOSITY:      "debug"
         run: python main.py
 
       - name: Commit DB dump to repo
