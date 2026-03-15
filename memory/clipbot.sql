@@ -39,6 +39,23 @@ CREATE TABLE failures (
                     error           TEXT NOT NULL,
                     context         TEXT
                 );
+INSERT INTO "failures" VALUES(1,'2026-03-15T09:35:11.617679','fetcher.download','yt-dlp failed after update: WARNING: [youtube] AoN1K4c7VKE: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: Only images are available for download. use --list-formats to see them
+ERROR: [youtube] AoN1K4c7VKE: Requested format is not available. Use --list-formats for a list of available for','AoN1K4c7VKE');
+INSERT INTO "failures" VALUES(2,'2026-03-15T09:35:18.580061','fetcher.download','yt-dlp failed after update: WARNING: [youtube] hjkbqeWQAM8: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: Only images are available for download. use --list-formats to see them
+ERROR: [youtube] hjkbqeWQAM8: Requested format is not available. Use --list-formats for a list of available for','hjkbqeWQAM8');
+INSERT INTO "failures" VALUES(3,'2026-03-15T09:35:27.032109','fetcher.download','yt-dlp failed after update: WARNING: [youtube] Xg1ro-zG7AM: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: Only images are available for download. use --list-formats to see them
+ERROR: [youtube] Xg1ro-zG7AM: Requested format is not available. Use --list-formats for a list of available for','Xg1ro-zG7AM');
+INSERT INTO "failures" VALUES(4,'2026-03-15T09:35:34.652459','fetcher.download','yt-dlp failed after update: WARNING: [youtube] 3GNyw4uaAqU: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: Only images are available for download. use --list-formats to see them
+ERROR: [youtube] 3GNyw4uaAqU: Requested format is not available. Use --list-formats for a list of available for','3GNyw4uaAqU');
+INSERT INTO "failures" VALUES(5,'2026-03-15T09:35:41.745930','fetcher.download','yt-dlp failed after update: WARNING: [youtube] IJkB-oapuks: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: Only images are available for download. use --list-formats to see them
+ERROR: [youtube] IJkB-oapuks: Requested format is not available. Use --list-formats for a list of available for','IJkB-oapuks');
+INSERT INTO "failures" VALUES(6,'2026-03-15T09:35:50.499118','fetcher.download','yt-dlp failed after update: WARNING: [youtube] 9BsQpGhwVAY: Signature solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+WARNING: [youtube] 9BsQpGhwVAY: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Revie','9BsQpGhwVAY');
 CREATE TABLE manual_queue (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     url             TEXT NOT NULL UNIQUE,
@@ -59,6 +76,12 @@ CREATE TABLE processed_videos (
                     clips_made      INTEGER DEFAULT 0,
                     processed_at    TEXT NOT NULL
                 );
+INSERT INTO "processed_videos" VALUES('AoN1K4c7VKE','MrBeast','Survive 30 Days Stranded With Your Ex, Win $250,000','download_failed',0,'2026-03-15T09:35:12.040986');
+INSERT INTO "processed_videos" VALUES('hjkbqeWQAM8','MrBeast','Every Step You Take, Win $1,000','download_failed',0,'2026-03-15T09:35:18.818255');
+INSERT INTO "processed_videos" VALUES('Xg1ro-zG7AM','Mark Rober','Engineers vs Junkyard RC Car Death Match','download_failed',0,'2026-03-15T09:35:27.215736');
+INSERT INTO "processed_videos" VALUES('3GNyw4uaAqU','MrBeast','Subscribe for an iPhone','download_failed',0,'2026-03-15T09:35:34.947550');
+INSERT INTO "processed_videos" VALUES('IJkB-oapuks','MrBeast','Giving Away $1,000,000 in Gifts To My Subscribers','download_failed',0,'2026-03-15T09:35:41.942502');
+INSERT INTO "processed_videos" VALUES('9BsQpGhwVAY','Mark Rober','pride comes before flop','download_failed',0,'2026-03-15T09:35:50.675440');
 CREATE TABLE quota_log (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     logged_at       TEXT NOT NULL,
@@ -67,6 +90,19 @@ CREATE TABLE quota_log (
                     units_used      INTEGER DEFAULT 1,
                     operation       TEXT
                 );
+INSERT INTO "quota_log" VALUES(1,'2026-03-15T09:35:04.370259','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(2,'2026-03-15T09:35:04.469085','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(3,'2026-03-15T09:35:04.644644','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(4,'2026-03-15T09:35:04.855844','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(5,'2026-03-15T09:35:18.889898','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(6,'2026-03-15T09:35:19.077761','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(7,'2026-03-15T09:35:19.193570','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(8,'2026-03-15T09:35:27.444171','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(9,'2026-03-15T09:35:27.615528','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(10,'2026-03-15T09:35:27.787226','youtube',NULL,1,'videos_list');
+INSERT INTO "quota_log" VALUES(11,'2026-03-15T09:35:42.076302','youtube',NULL,1,'channels_list');
+INSERT INTO "quota_log" VALUES(12,'2026-03-15T09:35:42.252062','youtube',NULL,1,'playlist_items_list');
+INSERT INTO "quota_log" VALUES(13,'2026-03-15T09:35:42.367819','youtube',NULL,1,'videos_list');
 CREATE TABLE uploaded_shorts (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     youtube_id      TEXT UNIQUE,
