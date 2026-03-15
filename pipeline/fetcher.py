@@ -315,7 +315,10 @@ def download_video(video: Dict) -> Optional[Path]:
         "--output", out_template,
         "--no-playlist",
         "--merge-output-format", "mp4",
-        # NOTE: --quiet and --no-warnings removed so errors are visible in logs
+        # Use iOS player client to bypass YouTube's JS n-challenge entirely.
+        # The web client requires a JS solver; iOS uses a different signing
+        # mechanism that doesn't trigger it.
+        "--extractor-args", "youtube:player_client=ios",
     ] + cookie_args
 
     for attempt in range(2):
