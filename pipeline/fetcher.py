@@ -6,7 +6,7 @@ import sys
 import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import yaml
 
@@ -68,8 +68,8 @@ def update_ytdlp():
             check=True, capture_output=True
         )
         print("✅ yt-dlp updated")
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️  yt-dlp update failed (continuing with current version)")
+    except subprocess.CalledProcessError:
+        print("⚠️  yt-dlp update failed (continuing with current version)")
 
 
 # ── Manual queue ──────────────────────────────────────────────────────────
@@ -83,7 +83,6 @@ def sync_manual_queue():
     try:
         data = yaml.safe_load(queue_file.read_text())
         entries = data.get("videos", []) if data else []
-        # Only sync pending entries from YAML
         pending = [e for e in entries if e.get("status", "pending") == "pending"]
         if pending:
             db.sync_manual_queue_from_yaml(pending)
@@ -124,7 +123,6 @@ def resolve_manual_queue_entry(entry: Dict, youtube_service) -> Optional[Dict]:
         db.mark_queue_entry_done(entry["id"], video_id)
         return None
 
-    # Fetch video metadata
     can, reason = quota_manager.can_use_youtube(units=1)
     if not can:
         print(f"⚠️  YouTube quota: {reason}")
@@ -167,7 +165,6 @@ def fetch_viral_videos(creator: Dict, youtube_service,
                        extend_backlog: bool = False) -> List[Dict]:
     """
     Fetch recently viral videos from a creator's uploads playlist.
-    If extend_backlog=True, uses the longer backlog window (90 days).
     Cost: ~3 YouTube API units total.
     """
     cfg = config_manager.pipeline
@@ -188,7 +185,6 @@ def fetch_viral_videos(creator: Dict, youtube_service,
         return []
 
     try:
-        # Get uploads playlist ID
         ch_resp = youtube_service.channels().list(
             part="contentDetails", id=channel_id
         ).execute()
@@ -203,7 +199,6 @@ def fetch_viral_videos(creator: Dict, youtube_service,
             ch_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         )
 
-        # Get recent uploads
         pl_resp = youtube_service.playlistItems().list(
             part="snippet", playlistId=uploads_id, maxResults=50
         ).execute()
@@ -223,7 +218,6 @@ def fetch_viral_videos(creator: Dict, youtube_service,
 
             if db.is_video_processed(vid_id):
                 continue
-            # Also skip if already in the clip bank (processed but clips still pending)
             if vid_id in db.get_pending_source_video_ids():
                 continue
 
@@ -239,7 +233,6 @@ def fetch_viral_videos(creator: Dict, youtube_service,
             print(f"ℹ️  No new videos for {creator_name}")
             return []
 
-        # Get view counts + duration
         vid_ids = [v["id"] for v in candidates[:50]]
         stats_resp = youtube_service.videos().list(
             part="statistics,contentDetails", id=",".join(vid_ids)
@@ -282,9 +275,13 @@ def fetch_viral_videos(creator: Dict, youtube_service,
         return []
 
 
-# ── Download ─────────────────────────────────────────────────────────────
+# ── Full video download (Whisper fallback only) ───────────────────────────
 
 def download_video(video: Dict) -> Optional[Path]:
+    """
+    Download the full video — only used as fallback when YouTube captions
+    are unavailable and Whisper transcription is needed.
+    """
     if not check_disk_space():
         return None
 
@@ -315,15 +312,12 @@ def download_video(video: Dict) -> Optional[Path]:
         "--output", out_template,
         "--no-playlist",
         "--merge-output-format", "mp4",
-        # Use nodejs as the JS runtime for solving YouTube's n-challenge.
-        # The yt-dlp-ejs scripts (installed via yt-dlp[default]) handle
-        # the actual challenge solving; this tells yt-dlp which runtime to use.
         "--js-runtimes", "node",
     ] + cookie_args
 
     for attempt in range(2):
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd, check=True, capture_output=True, timeout=600, text=True
             )
             matches = list(TEMP_DIR.glob(f"{vid_id}.*"))
@@ -335,7 +329,6 @@ def download_video(video: Dict) -> Optional[Path]:
             if other:
                 return other[0]
         except subprocess.CalledProcessError as e:
-            # Print full yt-dlp error so we can diagnose IP blocks, auth failures etc.
             stderr_out = (e.stderr or "").strip()
             stdout_out = (e.stdout or "").strip()
             error_detail = stderr_out or stdout_out or "no output captured"
@@ -361,6 +354,114 @@ def download_video(video: Dict) -> Optional[Path]:
             db.log_failure("fetcher.download", "Timeout after 600s", vid_id)
             return None
     return None
+
+
+# ── Segment download (used at render time) ────────────────────────────────
+
+def download_clip_segment(video_id: str,
+                           clip_start: float,
+                           clip_end: float,
+                           buffer_sec: float = 6.0) -> Tuple[Optional[Path], float]:
+    """
+    Download only the clip segment + a buffer of lead-in context.
+
+    This is used instead of re-downloading the full video at render time.
+    A ~50-60 second file download vs a ~300MB full video — much less likely
+    to hit CDN IP blocks on Azure-hosted runners.
+
+    Args:
+        video_id:   YouTube video ID
+        clip_start: Absolute start time of clip in original video (seconds)
+        clip_end:   Absolute end time of clip in original video (seconds)
+        buffer_sec: Lead-in buffer before clip_start for natural context
+
+    Returns:
+        (path_to_segment, segment_start_seconds)
+        segment_start_seconds tells the renderer where the file begins
+        in absolute video time so it can offset its ffmpeg timestamps.
+        Returns (None, 0.0) on failure.
+    """
+    if not check_disk_space():
+        return None, 0.0
+
+    TEMP_DIR.mkdir(exist_ok=True)
+
+    # Calculate segment bounds
+    seg_start = max(0.0, clip_start - buffer_sec)
+    seg_end = clip_end  # no end buffer needed
+
+    vid_url = f"https://www.youtube.com/watch?v={video_id}"
+    # Unique filename includes timestamps to avoid collisions between clips
+    seg_filename = f"{video_id}_{int(seg_start)}_{int(seg_end)}"
+    out_template = str(TEMP_DIR / f"{seg_filename}.%(ext)s")
+
+    cfg = config_manager.pipeline
+    quality = cfg.get("source_video_quality", "720")
+
+    cookies_path = os.environ.get("YT_COOKIES_PATH", "")
+    cookie_args = (
+        ["--cookies", cookies_path]
+        if cookies_path and Path(cookies_path).exists()
+        else []
+    )
+
+    # --download-sections tells yt-dlp to only fetch the specified time range
+    # Format: "*START-END" where times are in seconds
+    section_spec = f"*{seg_start}-{seg_end}"
+
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        vid_url,
+        "--format",
+        f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]"
+        f"/best[height<={quality}][ext=mp4]/best",
+        "--output", out_template,
+        "--no-playlist",
+        "--merge-output-format", "mp4",
+        "--download-sections", section_spec,
+        "--js-runtimes", "node",
+    ] + cookie_args
+
+    seg_duration = seg_end - seg_start
+    print(f"⬇️  Downloading clip segment: "
+          f"{seg_start:.1f}s → {seg_end:.1f}s ({seg_duration:.0f}s)")
+
+    for attempt in range(2):
+        try:
+            subprocess.run(
+                cmd, check=True, capture_output=True, timeout=120, text=True
+            )
+            matches = list(TEMP_DIR.glob(f"{seg_filename}.*"))
+            mp4_files = [f for f in matches if f.suffix == ".mp4"]
+            if mp4_files:
+                print(f"✅ Segment downloaded: {mp4_files[0].name}")
+                return mp4_files[0], seg_start
+            other = [f for f in matches if f.suffix in (".mkv", ".webm")]
+            if other:
+                return other[0], seg_start
+
+        except subprocess.CalledProcessError as e:
+            stderr_out = (e.stderr or "").strip()
+            error_detail = stderr_out or "no output captured"
+            if attempt == 0:
+                print(f"⚠️  Segment download failed (attempt 1): {error_detail[:400]}")
+                print("   Updating yt-dlp and retrying...")
+                update_ytdlp()
+            else:
+                print(f"❌ Segment download failed (attempt 2): {error_detail[:400]}")
+                db.log_failure(
+                    "fetcher.download_segment",
+                    f"Segment download failed: {error_detail[:300]}",
+                    video_id
+                )
+                return None, 0.0
+
+        except subprocess.TimeoutExpired:
+            print(f"❌ Segment download timed out after 120s for {video_id}")
+            db.log_failure("fetcher.download_segment", "Timeout after 120s", video_id)
+            return None, 0.0
+
+    return None, 0.0
 
 
 def cleanup_video(path: Optional[Path]):
