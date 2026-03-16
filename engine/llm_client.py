@@ -47,7 +47,7 @@ class LLMClient:
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 temperature=0.3,
-                max_output_tokens=2000,
+                max_output_tokens=8000,
                 # Forces pure JSON output — eliminates markdown fences and
                 # thinking-model preamble that cause parse failures.
                 # Gemini 2.5 Flash/Pro are "thinking" models that otherwise
@@ -226,3 +226,7 @@ class LLMClient:
 
 
 llm_client = LLMClient()
+
+
+
+================================================
