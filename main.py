@@ -12,14 +12,20 @@ import traceback
 
 def main():
     # ── Kill switch ───────────────────────────────────────────────────────
-    enabled = os.environ.get("CLIPBOT_ENABLED", "true").strip().lower()
-    if enabled == "false":
-        print("🔴 CLIPBOT_ENABLED=false — system halted.")
+    # Treat only explicit "true" / "1" as enabled.
+    # Empty string (GitHub Actions var not set), "false", or any other
+    # value halts the pipeline. Default is "true" when env var is absent.
+    raw_enabled = os.environ.get("CLIPBOT_ENABLED", "true").strip().lower()
+    # Treat absent/empty as "true" (backwards compat when var not configured)
+    enabled = raw_enabled if raw_enabled else "true"
+    if enabled not in ("true", "1"):
+        print(f"🔴 CLIPBOT_ENABLED={raw_enabled!r} — system halted.")
         # Still notify Discord so you know the kill switch is active
         try:
             from engine.discord_notifier import notifier
             notifier.send_info("Kill Switch Active",
-                               "CLIPBOT_ENABLED=false. Set to `true` to resume.")
+                               f"CLIPBOT_ENABLED={raw_enabled!r}. "
+                               "Set to `true` to resume.")
         except Exception:
             pass
         sys.exit(0)
