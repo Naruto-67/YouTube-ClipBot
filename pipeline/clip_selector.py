@@ -32,7 +32,8 @@ def get_dynamic_clip_count(duration_seconds: float) -> int:
 
 
 def select_clips(video: Dict, transcript: Dict,
-                 override_count: int = 0) -> List[Dict]:
+                 override_count: int = 0,
+                 early_stop_at: int = 0) -> List[Dict]:
     """
     Use AI to find the best clips in a video.
     For long videos, splits transcript into overlapping chunks and
@@ -54,7 +55,8 @@ def select_clips(video: Dict, transcript: Dict,
     if video_duration <= chunk_sec:
         raw_clips = _select_from_chunk(video, transcript, num_clips)
     else:
-        raw_clips = _select_chunked(video, transcript, num_clips, chunk_sec)
+        raw_clips = _select_chunked(video, transcript, num_clips, chunk_sec,
+                                    early_stop_at=early_stop_at)
 
     if not raw_clips:
         db.log_failure("clip_selector", "No clips from AI", video.get("id", ""))
@@ -73,8 +75,13 @@ def select_clips(video: Dict, transcript: Dict,
 
 
 def _select_chunked(video: Dict, transcript: Dict,
-                    total_clips: int, chunk_sec: float) -> List[Dict]:
-    """Run clip selection on each transcript chunk, merge results."""
+                    total_clips: int, chunk_sec: float,
+                    early_stop_at: int = 0) -> List[Dict]:
+    """Run clip selection on each transcript chunk, merge results.
+
+    early_stop_at: if > 0, stop processing chunks once we have this many
+                   clips collected (saves LLM calls when bank is nearly full).
+    """
     cfg = config_manager.pipeline
     overlap_sec = cfg.get("chunk_overlap_minutes", 2) * 60
     step_sec = chunk_sec - overlap_sec
@@ -95,6 +102,12 @@ def _select_chunked(video: Dict, transcript: Dict,
     all_clips: List[Dict] = []
 
     for i, (chunk_start, chunk_end) in enumerate(chunks):
+        # Early stop: if we already have enough clips, skip remaining chunks
+        if early_stop_at > 0 and len(all_clips) >= early_stop_at:
+            print(f"   ⏭️  Collected {len(all_clips)} clips — skipping remaining "
+                  f"{len(chunks) - i} chunk(s) to save LLM quota")
+            break
+
         print(f"   AI chunk {i+1}/{len(chunks)}: "
               f"{chunk_start/60:.1f}m → {chunk_end/60:.1f}m")
 
@@ -182,7 +195,7 @@ def _validate_clip(clip: Dict, video_duration: float,
     duration = end - start
     if duration < min_sec - 2:
         return None
-    if duration > max_sec + 5:
+    if duration > max_sec:
         end = start + max_sec
 
     clip_type = clip.get("clip_type", "engaging")
