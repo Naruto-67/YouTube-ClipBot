@@ -237,8 +237,17 @@ class Orchestrator:
                     return 0
 
             # ── Step 2: Select clips ──────────────────────────────────
+            # Pass early_stop_at so _select_chunked stops processing chunks
+            # once we have enough clips to fill the bank — saves LLM calls.
+            cfg = config_manager.pipeline
+            bank_threshold = cfg.get("clip_bank_low_threshold", 3)
+            current_bank = db.get_bank_count("pending")
+            clips_needed = max(1, bank_threshold - current_bank + 1)
+
             clips = clip_selector.select_clips(
-                video, transcript_result, override_count=override_count
+                video, transcript_result,
+                override_count=override_count,
+                early_stop_at=clips_needed if override_count == 0 else 0,
             )
             if not clips:
                 db.mark_video_processed(vid_id, creator_name, title, "no_clips")
