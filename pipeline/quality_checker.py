@@ -19,7 +19,7 @@ def check_video(path: Path) -> Tuple[bool, str]:
     expected_w = cfg.get("output_width", 1080)
     expected_h = cfg.get("output_height", 1920)
     min_sec = cfg.get("min_clip_seconds", 30)
-    max_sec = cfg.get("max_clip_seconds", 60) + 10  # generous tolerance
+    max_sec = cfg.get("max_clip_seconds", 60)  # hard cap — YouTube Shorts must be ≤60s
 
     if not path.exists():
         return False, "Output file does not exist"
