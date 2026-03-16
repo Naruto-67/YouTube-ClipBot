@@ -69,7 +69,7 @@ apply_vignette: true
 vignette_angle: 0.785
 
 # ── Voiceover hook ──────────────────────────────────────────
-add_voiceover_hook: true
+add_voiceover_hook: false    # Disabled: Bing TTS WebSocket blocked on Azure IPs
 hook_max_words: 10
 hook_voice: "en-US-GuyNeural"
 
