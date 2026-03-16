@@ -162,7 +162,32 @@ class QuotaManager:
         self._inc_rpd(provider, model_name)
         db.log_quota(f"ai_{provider}", 1, "generate", model_name)
 
-    def get_best_available_model(self) -> Optional[Tuple[str, str, Dict]]:
+    def mark_model_exhausted(self, provider: str, model_name: str):
+        """
+        Spike this model's RPD counter to its limit so can_use_model()
+        returns False and get_best_available_model() skips it, falling
+        through to the next tier (e.g. Groq after Gemini 429s).
+
+        Called when a 429 / RESOURCE_EXHAUSTED is received — the actual
+        quota is exhausted on the provider side even if our local counter
+        thinks otherwise (e.g. after a DB reset on a fresh runner).
+        """
+        models = config_manager.providers.get(provider, {}).get("models", [])
+        cfg = next((m for m in models if m["name"] == model_name), None)
+        if cfg is None:
+            return
+        rpd_limit = cfg.get("rpd", 999999)
+        # Set RPD counter to limit so can_use_model returns False
+        key = f"{provider}:{model_name}:rpd"
+        self._state[key] = {
+            "date": self._date_key(provider),
+            "value": rpd_limit,
+        }
+        self._save_state()
+        print(f"   ⚠️  Marked {model_name} as RPD-exhausted — "
+              f"will use next model in chain")
+
+
         """
         Return (provider, model_name, model_config) for the highest-priority
         model that is currently available (within RPM and RPD limits).
