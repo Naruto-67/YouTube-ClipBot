@@ -216,6 +216,10 @@ class LLMClient:
 
                 if is_rate_limit:
                     print(f"🔄 Rate limit hit on {model_name} — escalating to next model")
+                    # Mark this model as RPD-exhausted so quota_manager skips it
+                    # on the next call and falls through to the next tier (e.g. Groq).
+                    # We spike RPD to its limit so can_use_model() returns False.
+                    quota_manager.mark_model_exhausted(provider, model_name)
 
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
@@ -226,7 +230,3 @@ class LLMClient:
 
 
 llm_client = LLMClient()
-
-
-
-================================================
