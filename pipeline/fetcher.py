@@ -307,7 +307,8 @@ def download_video(video: Dict) -> Optional[Path]:
         sys.executable, "-m", "yt_dlp",
         f"https://www.youtube.com/watch?v={vid_id}",
         "--format",
-        f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]"
+        f"bestvideo[height<={quality}][ext=mp4][vcodec!*=av01]+bestaudio[ext=m4a]"
+        f"/bestvideo[height<={quality}][vcodec!*=av01]+bestaudio"
         f"/best[height<={quality}][ext=mp4]/best",
         "--output", out_template,
         "--no-playlist",
@@ -413,7 +414,8 @@ def download_clip_segment(video_id: str,
         sys.executable, "-m", "yt_dlp",
         vid_url,
         "--format",
-        f"bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]"
+        f"bestvideo[height<={quality}][ext=mp4][vcodec!*=av01]+bestaudio[ext=m4a]"
+        f"/bestvideo[height<={quality}][vcodec!*=av01]+bestaudio"
         f"/best[height<={quality}][ext=mp4]/best",
         "--output", out_template,
         "--no-playlist",
