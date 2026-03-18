@@ -1,11 +1,11 @@
 {
   "youtube:data_api:units": {
-    "date": "2026-03-17",
-    "value": 4804
+    "date": "2026-03-18",
+    "value": 3207
   },
   "gemini:gemini-2.5-flash:rpd": {
-    "date": "2026-03-17",
-    "value": 9
+    "date": "2026-03-18",
+    "value": 7
   },
   "gemini:gemini-2.5-flash-lite:rpd": {
     "date": "2026-03-15",
