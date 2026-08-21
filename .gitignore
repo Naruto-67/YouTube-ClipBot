@@ -23,6 +23,8 @@ temp/
 # Local DB binary (only SQL dump gets committed)
 memory/clipbot.db
 memory/clipbot_test.db
+memory/clipbot_test.sql
+memory/quota_state_test.json
 
 # Cookies (sensitive)
 cookies.txt
