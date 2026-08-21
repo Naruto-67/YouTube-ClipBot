@@ -5,7 +5,7 @@ google-auth-httplib2==0.4.1
 google-auth-oauthlib==1.2.1
 faster-whisper==1.1.1
 yt-dlp[default]
-youtube-transcript-api==0.6.3
+youtube-transcript-api==1.2.4
 edge-tts==7.2.8
 # Piper TTS — optional local fallback for voiceover hooks when edge-tts is
 # blocked (e.g. GitHub Actions Azure IPs). Requires the `piper` CLI + a voice
