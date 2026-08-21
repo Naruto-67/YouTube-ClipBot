@@ -11,5 +11,5 @@ opencv-python-headless==4.10.0.84
 PyYAML==6.0.2
 pytz==2024.2
 requests==2.32.3
-pydantic==2.9.2
+pydantic==2.13.4
 numpy==1.26.4
