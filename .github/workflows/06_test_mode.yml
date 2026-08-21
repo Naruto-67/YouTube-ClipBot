@@ -1,0 +1,134 @@
+name: 06 Test Mode (Dry Run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "YouTube video URL to test (optional — uses manual queue if set)"
+        required: false
+        default: ""
+
+jobs:
+  test-mode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: clipbot-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: clipbot-pip-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-liberation \
+            libopencv-dev \
+            python3-opencv
+          ffmpeg -version | head -1
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          node --version
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: Write YouTube cookies
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then
+            echo "$YT_COOKIES" > /tmp/yt-cookies.txt
+            echo "✅ Cookies written"
+          else
+            echo "ℹ️  No YT_COOKIES secret set — skipping"
+          fi
+
+      - name: Download caption font
+        run: python scripts/download_font.py
+
+      - name: Add test video to manual queue (if provided)
+        if: ${{ github.event.inputs.video_url != '' }}
+        run: |
+          python - <<'EOF'
+          import yaml
+          from pathlib import Path
+          qf = Path("config/manual_queue.yaml")
+          data = yaml.safe_load(qf.read_text()) or {}
+          videos = data.get("videos", [])
+          url = "${{ github.event.inputs.video_url }}"
+          if not any(v.get("url") == url for v in videos):
+              videos.append({
+                  "url": url,
+                  "creator_name": "Test",
+                  "source": "TestMode",
+                  "note": "TEST_MODE dry-run video",
+                  "max_clips": 2,
+                  "status": "pending",
+              })
+              data["videos"] = videos
+              qf.write_text(yaml.dump(data, default_flow_style=False))
+              print(f"✅ Added test video: {url}")
+          else:
+              print(f"ℹ️  Video already in queue: {url}")
+          EOF
+
+      - name: Run ClipBot TEST_MODE pipeline
+        env:
+          TEST_MODE: "true"
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CREDENTIALS:   ${{ secrets.YOUTUBE_CREDENTIALS }}
+          DISCORD_WEBHOOK:       ${{ secrets.DISCORD_WEBHOOK }}
+          YT_COOKIES_PATH:       "/tmp/yt-cookies.txt"
+          PYTHONUNBUFFERED:      "1"
+        run: python main.py
+
+      - name: Upload rendered test videos as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-rendered-shorts
+          path: |
+            temp/*_short.mp4
+            temp/*.mp4
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Commit test DB state (optional)
+        run: |
+          git config user.name  "clipbot-bot"
+          git config user.email "bot@clipbot.ai"
+          git add memory/clipbot_test.sql memory/quota_state_test.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: test-mode state update [skip ci]"
+            for i in 1 2 3 4 5; do
+              git push && break || {
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 5 ))
+              }
+            done
+          else
+            echo "No test state changes to commit."
+          fi

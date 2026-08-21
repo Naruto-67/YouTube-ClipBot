@@ -1,0 +1,62 @@
+# .github/workflows/00_auto_merge_deps.yml
+# Auto-merge Dependabot patch/minor PRs (safe), block fragile ML packages.
+
+name: 00 Auto-Merge Dependabot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fragile binary/native packages — always manual review.
+      - name: Block auto-merge for fragile packages
+        if: |
+          contains(fromJSON('["faster-whisper","opencv-python-headless"]'),
+                   steps.meta.outputs.dependency-names)
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "⚠️ **Manual review required** for \`${{ steps.meta.outputs.dependency-names }}\`.
+            This package ships native binaries — bumping it can break the pipeline on
+            GitHub Actions runners. Please run \`TEST_MODE=true\` to validate before merging."
+          echo "🛑 Auto-merge blocked for protected package."
+          exit 0
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Auto-merge patch + minor for everything else.
+      - name: Auto-merge patch and minor updates
+        if: |
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          !contains(fromJSON('["faster-whisper","opencv-python-headless"]'),
+                    steps.meta.outputs.dependency-names)
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Flag major bumps for manual review.
+      - name: Label major updates for manual review
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "⚠️ **Major version bump.** Manual review required before merging."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

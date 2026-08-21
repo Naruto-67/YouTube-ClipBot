@@ -70,6 +70,24 @@ jobs:
           GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
         run: python scripts/maintenance.py
 
+      - name: Run API monitor (provider deprecation / new-model audit)
+        env:
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+          DISCORD_WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+        run: python scripts/api_monitor.py
+
+      - name: Run performance analyst (Analytics feedback loop)
+        env:
+          YOUTUBE_CREDENTIALS:  ${{ secrets.YOUTUBE_CREDENTIALS }}
+          DISCORD_WEBHOOK:      ${{ secrets.DISCORD_WEBHOOK }}
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+        run: |
+          # Requires YOUTUBE_CREDENTIALS + Analytics enabled; script no-ops safely
+          # when performance_feedback is disabled or quota is exhausted.
+          python -c "from scripts.performance_analyst import run_performance_analysis; from pipeline.fetcher import get_youtube_service; yt,_ = get_youtube_service(); run_performance_analysis(yt)" || echo "ℹ️  Performance analysis skipped (non-fatal)"
+
       - name: Commit updated DB dump
         run: |
           git config user.name  "clipbot-bot"
