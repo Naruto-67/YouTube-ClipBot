@@ -13,7 +13,7 @@ edge-tts==7.2.8
 piper-tts>=1.2.0
 opencv-python-headless==5.0.0.93
 PyYAML==6.0.2
-pytz==2024.2
+pytz==2026.3.post1
 requests==2.32.3
 pydantic==2.9.2
 numpy==1.26.4
