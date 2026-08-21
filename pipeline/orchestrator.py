@@ -1,34 +1,13 @@
 # pipeline/orchestrator.py
 """
 Master pipeline orchestrator — updated with:
-  - youtube-transcript-api as primary transcription (instant, no download)
-  - Whisper fallback when captions unavailable
-  - Segment-only video download at render time (replaces full video re-download)
-  - Manual queue (processed first, highest priority)
-  - Clip bank (bank all clips from a video, drip-feed daily)
-  - Dynamic clip count per video based on duration
-  - Backlog extension when bank is low
-  - Empty bank alert with no source videos found
-
-Run order each day:
-  1. Sync manual_queue.yaml into DB
-  2. Process any pending manual queue entries → bank all their clips
-  3. Check bank count:
-     - If bank >= max_clips_per_day → skip discovery, just upload from bank
-     - If bank < threshold          → run discovery to refill
-     - If bank empty and no new videos → alert Discord
-  4. Discovery (if needed):
-     - Normal window first (30 days)
-     - If still low → backlog window (90 days)
-  5. For each discovered video:
-       → Try caption API first (instant, no download)
-       → Fall back to yt-dlp full download + Whisper if captions unavailable
-       → Select ALL clips → save to bank
-  6. Upload max_clips_per_day from bank:
-       → Download only the clip segment + buffer (not full video)
-       → Render → Upload
-  7. Send daily report
+  - TEST_MODE: dry-run pipeline with no YouTube quota consumption
+  - Dedup: never re-discover videos with banked clips
+  - Sentence-boundary snapping for narrative coherence
+  - Manual queue entry failure marking fix
+  - Auto model discovery
 """
+import os
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +17,7 @@ from engine.config_manager import config_manager
 from engine.database import db
 from engine.discord_notifier import notifier
 from engine.quota_manager import quota_manager
+from engine.model_discovery import get_effective_models
 from pipeline import clip_selector
 from pipeline import fetcher
 from pipeline import quality_checker
@@ -50,6 +30,7 @@ from pipeline import voiceover
 
 ROOT = Path(__file__).parent.parent
 TEMP_DIR = ROOT / "temp"
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 
 class Orchestrator:
@@ -67,15 +48,34 @@ class Orchestrator:
 
     def run(self):
         print("=" * 60)
-        print(f"🚀 ClipBot starting — {datetime.now(timezone.utc).isoformat()}")
+        mode_tag = "🧪 [TEST MODE] " if TEST_MODE else ""
+        print(f"{mode_tag}🚀 ClipBot starting — {datetime.now(timezone.utc).isoformat()}")
+        if TEST_MODE:
+            print("   No YouTube API calls, no quota consumed, simulated uploads.")
         print("=" * 60)
         TEMP_DIR.mkdir(exist_ok=True)
 
+        # ── Log discovered models if enabled ────────────────────────────────
+        if not TEST_MODE:
+            try:
+                models = get_effective_models()
+                for m in models:
+                    disc = "🔬" if m.get("discovered") else "   "
+                    print(f"   {disc} Model: {m['name']} (tier {m['tier']})")
+            except Exception:
+                pass
+
         try:
-            fetcher.update_ytdlp()
-            youtube_service, _ = fetcher.get_youtube_service()
-            sub_count = scheduler.get_channel_subscriber_count(youtube_service)
-            publish_times = scheduler.get_best_publish_times(youtube_service, sub_count)
+            if TEST_MODE:
+                # TEST_MODE: no YouTube services needed
+                youtube_service = None
+                sub_count = 100
+                publish_times = scheduler.get_best_publish_times(None, sub_count)
+            else:
+                youtube_service, _ = fetcher.get_youtube_service()
+                sub_count = scheduler.get_channel_subscriber_count(youtube_service)
+                publish_times = scheduler.get_best_publish_times(youtube_service, sub_count)
+
             print(f"📊 Subscribers: {sub_count:,} | "
                   f"Publish windows (UTC): {publish_times}")
 
@@ -140,6 +140,9 @@ class Orchestrator:
                   f"[{entry.get('source', 'Manual')}]")
             video = fetcher.resolve_manual_queue_entry(entry, youtube_service)
             if video is None:
+                # BUG FIX: entry was NOT marked as failed when resolve returned None
+                # (e.g. quota exhausted, video not found). Now mark it.
+                db.mark_queue_entry_failed(entry["id"])
                 continue
             override = entry.get("max_clips", 0)
             clips_banked = self._process_video_to_bank(
@@ -205,6 +208,7 @@ class Orchestrator:
 
         self.stats["videos_checked"] += 1
         source_path: Optional[Path] = None
+        audio_path: Optional[Path] = None
         clips_banked = 0
 
         try:
@@ -220,21 +224,31 @@ class Orchestrator:
                 )
 
             if transcript_result is None:
-                # Caption API failed or disabled — fall back to Whisper
-                if prefer_captions:
-                    print(f"⬇️  Captions unavailable — falling back to "
-                          f"yt-dlp + Whisper (this will take ~{duration_sec/60:.0f} min)")
-                source_path = fetcher.download_video(video)
-                if source_path is None:
-                    db.mark_video_processed(vid_id, creator_name, title,
-                                            "download_failed")
-                    return 0
-
-                transcript_result = transcriber.transcribe(source_path)
+                # Caption API failed/disabled → try Groq cloud Whisper (audio-only
+                # download, no local model, fast). Fall back to local Whisper last.
+                print(f"⬇️  Captions unavailable — trying Groq Whisper "
+                      f"(audio-only download)")
+                audio_path = fetcher.download_audio_only(video)
+                if audio_path is not None:
+                    transcript_result = transcriber.get_transcript_via_groq(
+                        audio_path, duration_sec
+                    )
                 if transcript_result is None:
-                    db.mark_video_processed(vid_id, creator_name, title,
-                                            "transcription_failed")
-                    return 0
+                    # Last resort: full video + local faster-whisper
+                    if prefer_captions:
+                        print(f"⬇️  Groq transcription unavailable — falling back to "
+                              f"yt-dlp + Whisper (this will take ~{duration_sec/60:.0f} min)")
+                    source_path = fetcher.download_video(video)
+                    if source_path is None:
+                        db.mark_video_processed(vid_id, creator_name, title,
+                                                "download_failed")
+                        return 0
+
+                    transcript_result = transcriber.transcribe(source_path)
+                    if transcript_result is None:
+                        db.mark_video_processed(vid_id, creator_name, title,
+                                                "transcription_failed")
+                        return 0
 
             # ── Step 2: Select clips ──────────────────────────────────
             # Pass early_stop_at so _select_chunked stops processing chunks
@@ -253,11 +267,18 @@ class Orchestrator:
                 db.mark_video_processed(vid_id, creator_name, title, "no_clips")
                 return 0
 
-            # ── Step 3: Save ALL clips to bank ────────────────────────
+            # ── Step 3: Save ALL clips to bank, skip duplicates ────────
             source_url = video.get("url",
                 f"https://www.youtube.com/watch?v={vid_id}")
 
             for clip in clips:
+                # ── NEW: Skip if this exact clip range is already banked ──
+                if db.has_banked_clip(vid_id, clip["start_seconds"],
+                                       clip["end_seconds"]):
+                    print(f"   ⏭️  Skipping duplicate clip [{clip['start_seconds']:.1f}s→"
+                          f"{clip['end_seconds']:.1f}s] — already in bank")
+                    continue
+
                 clip_words = transcriber.get_words_in_range(
                     transcript_result,
                     clip["start_seconds"],
@@ -286,8 +307,9 @@ class Orchestrator:
             print(f"❌ Error processing {title}: {e}")
 
         finally:
-            # Only clean up if we actually downloaded the full video
+            # Clean up any downloaded full video AND audio-only file
             fetcher.cleanup_video(source_path)
+            fetcher.cleanup_video(audio_path)
 
         return clips_banked
 
@@ -305,19 +327,29 @@ class Orchestrator:
         - Much less likely to hit CDN IP blocks on Azure
         - No grouping by source needed since each segment is different timestamps
         """
-        pending_clips = db.get_pending_bank_clips(limit=max_clips)
-        if not pending_clips:
+        # Quick empty-bank check before entering the diversity loop
+        if db.get_bank_count("pending") == 0:
             return
 
-        print(f"\n📤 Uploading {len(pending_clips)} clips from bank")
+        print(f"\n📤 Uploading up to {max_clips} clips from bank (content-diverse)")
 
         cfg = config_manager.pipeline
         buffer_sec = float(cfg.get("transcript_buffer_seconds", 6))
 
         uploads_done = 0
-        for bank_clip in pending_clips:
-            if uploads_done >= max_clips:
-                break
+        last_source_id = None
+        # Loop until we've uploaded max_clips. Each iteration asks the bank for
+        # a clip from a DIFFERENT source video than the previous one (diversity),
+        # falling back if every pending clip is from the excluded source.
+        while uploads_done < max_clips:
+            # Exclude the source video we just uploaded from, if any
+            exclude = [last_source_id] if last_source_id else None
+            bank_clip = db.get_pending_bank_clips(
+                limit=1, exclude_source_ids=exclude
+            )
+            if not bank_clip:
+                break  # bank exhausted
+            bank_clip = bank_clip[0]
 
             src_id = bank_clip["source_video_id"]
             clip_start = bank_clip["start_seconds"]
@@ -337,6 +369,7 @@ class Orchestrator:
                     print(f"  ❌ Segment download failed for clip "
                           f"{clip_start}s→{clip_end}s from {src_id}")
                     db.mark_bank_clip_failed(bank_clip["id"])
+                    last_source_id = None
                     continue
 
                 clip_spec = {
@@ -362,6 +395,8 @@ class Orchestrator:
                 if success:
                     uploads_done += 1
                     self.stats["uploaded"] += 1
+                    # Next iteration: avoid another clip from this same source video
+                    last_source_id = src_id
 
             except Exception as e:
                 self.stats["errors"] += 1
@@ -451,3 +486,5 @@ class Orchestrator:
         print(f"   Uploaded: {self.stats['uploaded']} | "
               f"Banked: {self.stats['clips_banked']} | "
               f"Bank remaining: {self.stats['bank_count_end']}")
+        if TEST_MODE:
+            print(f"🧪 [TEST MODE] Pipeline completed — no real YouTube data affected.")

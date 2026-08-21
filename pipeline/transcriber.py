@@ -161,6 +161,81 @@ def _adapt_caption_segments(segments: List[Dict],
     }
 
 
+# ── Secondary: Groq Whisper (cloud transcription — no local model) ────────
+# Faster than downloading faster-whisper + running CPU inference. Uses Groq's
+# hosted whisper-large-v3. Returns the same word-dict format as everything else
+# so the rest of the pipeline is unaware of the source.
+
+def get_transcript_via_groq(audio_path: Path,
+                            video_duration_sec: float) -> Optional[Dict]:
+    """
+    Transcribe a local audio file via Groq's hosted Whisper API.
+    Returns the ClipBot word-dict format, or None on failure.
+    """
+    import os
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        print("ℹ️  No GROQ_API_KEY — skipping Groq transcription")
+        return None
+    if not audio_path.exists():
+        return None
+
+    model_name = "whisper-large-v3"
+
+    try:
+        from engine.config_manager import config_manager
+        cfg = config_manager.pipeline
+        model_name = cfg.get("groq_whisper_model", "whisper-large-v3")
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        with open(audio_path, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                file=(audio_path.name, f),
+                model=model_name,
+                response_format="verbose_json",
+                language="en",
+                timestamp_granularities=["word"],
+            )
+    except Exception as e:
+        print(f"⚠️  Groq transcription failed ({model_name}): {e}")
+        db.log_failure("transcriber.groq", str(e), str(audio_path.name))
+        return None
+
+    words = []
+    for seg in getattr(transcript, "segments", []) or []:
+        text = (seg.get("text") or "").strip().upper()
+        seg_words = [w for w in text.split() if w]
+        if not seg_words:
+            continue
+        seg_start = float(seg.get("start", 0))
+        seg_end = float(seg.get("end", seg_start + 1.0))
+        word_duration = max(0.01, (seg_end - seg_start) / len(seg_words))
+        for i, word in enumerate(seg_words):
+            w_start = round(seg_start + i * word_duration, 3)
+            w_end = round(min(w_start + word_duration, seg_end), 3)
+            words.append({
+                "word": word,
+                "start": w_start,
+                "end": w_end,
+                "confidence": 1.0,  # cloud ASR accepted as authoritative
+            })
+
+    if not words:
+        # Fall back to evenly-distributing whole-segment timestamps
+        return _adapt_caption_segments(
+            [dict(s) for s in getattr(transcript, "segments", []) or []],
+            video_duration_sec,
+        )
+
+    print(f"✅ Groq transcription ({model_name}): {len(words)} words")
+    return {
+        "words": words,
+        "text": " ".join(w["word"] for w in words),
+        "language": "en",
+        "duration": video_duration_sec,
+    }
+
+
 # ── Fallback: Whisper (full video download required) ─────────────────────
 
 def transcribe(video_path: Path) -> Optional[Dict]:

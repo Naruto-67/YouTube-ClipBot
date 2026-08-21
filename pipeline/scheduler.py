@@ -1,5 +1,6 @@
 # pipeline/scheduler.py
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -9,6 +10,8 @@ from engine.config_manager import config_manager
 from engine.database import db
 from engine.discord_notifier import notifier
 from engine.quota_manager import quota_manager
+
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 
 def get_best_publish_times(youtube_service, subscriber_count: int) -> List[str]:
@@ -147,6 +150,9 @@ def pick_next_slot(publish_times_utc: List[str]) -> str:
 
 def get_channel_subscriber_count(youtube_service) -> int:
     """Return the channel's current subscriber count."""
+    # TEST_MODE: no YouTube API calls — return a fixed value
+    if TEST_MODE:
+        return 100
     can, reason = quota_manager.can_use_youtube(units=1)
     if not can:
         print(f"⚠️  YouTube quota: {reason}")

@@ -17,6 +17,7 @@ from engine.quota_manager import quota_manager
 
 ROOT = Path(__file__).parent.parent
 TEMP_DIR = ROOT / "temp"
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 
 def _build_youtube_service():
@@ -75,7 +76,7 @@ def update_ytdlp():
 # ── Manual queue ──────────────────────────────────────────────────────────
 
 def sync_manual_queue():
-    """Load manual_queue.yaml into DB. Returns count of pending entries."""
+    """Load manual_queue.yaml into DB. Returns count of pending manual entries."""
     cfg = config_manager.pipeline
     queue_file = ROOT / cfg.get("manual_queue_file", "config/manual_queue.yaml")
     if not queue_file.exists():
@@ -86,7 +87,9 @@ def sync_manual_queue():
         pending = [e for e in entries if e.get("status", "pending") == "pending"]
         if pending:
             db.sync_manual_queue_from_yaml(pending)
-        return db.get_bank_count("pending")
+        # BUG FIX: was returning db.get_bank_count("pending") — wrong table.
+        # Now returns the actual count of pending manual queue entries.
+        return len(db.get_pending_manual_queue())
     except Exception as e:
         print(f"⚠️  Could not load manual_queue.yaml: {e}")
         return 0
@@ -110,6 +113,9 @@ def resolve_manual_queue_entry(entry: Dict, youtube_service) -> Optional[Dict]:
     """
     Convert a manual queue entry into the same video dict format
     used by fetch_viral_videos, so it flows through the same pipeline.
+
+    TEST_MODE: creates a synthetic video dict without calling the
+    YouTube API (no quota consumed, no network calls).
     """
     url = entry.get("url", "")
     video_id = extract_video_id_from_url(url)
@@ -118,10 +124,27 @@ def resolve_manual_queue_entry(entry: Dict, youtube_service) -> Optional[Dict]:
         db.mark_queue_entry_failed(entry["id"])
         return None
 
-    if db.is_video_processed(video_id):
+    if db.is_video_processed(
+            video_id,
+            circuit_breaker_limit=config_manager.pipeline.get(
+                "circuit_breaker_failures", 3)):
         print(f"ℹ️  Manual queue: {video_id} already processed — skipping")
         db.mark_queue_entry_done(entry["id"], video_id)
         return None
+
+    # ── TEST_MODE: synthetic video, no YouTube API call ──────────────────
+    if TEST_MODE:
+        print(f"🧪 [TEST MODE] Using synthetic video: {video_id}")
+        return {
+            "id": video_id,
+            "title": f"Test Video {video_id}",
+            "views": 0,
+            "duration_sec": 600,  # 10 min — enough for clip selection
+            "creator_name": entry.get("creator_name", "Test"),
+            "url": url,
+            "manual_queue_id": entry["id"],
+            "manual_max_clips": entry.get("max_clips", 0),
+        }
 
     can, reason = quota_manager.can_use_youtube(units=1)
     if not can:
@@ -166,7 +189,15 @@ def fetch_viral_videos(creator: Dict, youtube_service,
     """
     Fetch recently viral videos from a creator's uploads playlist.
     Cost: ~3 YouTube API units total.
+
+    TEST_MODE: returns empty list (no YouTube API calls).
     """
+    # ── TEST_MODE: no YouTube API calls ──────────────────────────────────
+    if TEST_MODE:
+        print(f"🧪 [TEST MODE] Skipping discovery for {creator['name']} "
+              f"(no YouTube API calls in test mode)")
+        return []
+
     cfg = config_manager.pipeline
     if extend_backlog:
         max_age_days = cfg.get("backlog_max_age_days", 90)
@@ -216,9 +247,18 @@ def fetch_viral_videos(creator: Dict, youtube_service,
             title = snippet.get("title", "")
             published_str = snippet.get("publishedAt", "")
 
-            if db.is_video_processed(vid_id):
+            if db.is_video_processed(
+                vid_id,
+                circuit_breaker_limit=config_manager.pipeline.get(
+                    "circuit_breaker_failures", 3)):
                 continue
             if vid_id in db.get_pending_source_video_ids():
+                continue
+            # ── NEW DEDUP: skip videos that already have ANY banked clips ──
+            # Even if processed_videos was pruned, a video with banked clips
+            # (pending, uploaded, or failed) must never be re-discovered.
+            if db.has_any_banked_clips(vid_id):
+                print(f"⏭️  Skipping {title[:50]}: already has banked clips")
                 continue
 
             if published_str:
@@ -276,6 +316,62 @@ def fetch_viral_videos(creator: Dict, youtube_service,
 
 
 # ── Full video download (Whisper fallback only) ───────────────────────────
+
+def download_audio_only(video: Dict) -> Optional[Path]:
+    """
+    Download ONLY the audio track as MP3 (much smaller than full video).
+
+    Used by the Groq transcription path — lets us transcribe in the cloud
+    without downloading hundreds of MBs of video or running local Whisper.
+    """
+    if not check_disk_space():
+        return None
+
+    TEMP_DIR.mkdir(exist_ok=True)
+    vid_id = video["id"]
+    out_template = str(TEMP_DIR / f"{vid_id}_audio.%(ext)s")
+
+    cookies_path = os.environ.get("YT_COOKIES_PATH", "")
+    cookie_args = (
+        ["--cookies", cookies_path]
+        if cookies_path and Path(cookies_path).exists()
+        else []
+    )
+
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        f"https://www.youtube.com/watch?v={vid_id}",
+        "--format", "bestaudio/best",
+        "--extract-audio",
+        "--audio-format", "mp3",
+        "--audio-quality", "1",       # ~192kbps
+        "--output", out_template,
+        "--no-playlist",
+    ] + cookie_args
+
+    for attempt in range(2):
+        try:
+            subprocess.run(
+                cmd, check=True, capture_output=True, timeout=300, text=True
+            )
+            matches = [f for f in TEMP_DIR.glob(f"{vid_id}_audio.*")]
+            mp3_files = [f for f in matches if f.suffix == ".mp3"]
+            if mp3_files:
+                print(f"✅ Audio downloaded: {mp3_files[0].name}")
+                return mp3_files[0]
+            other = [f for f in matches if f.suffix in (".m4a", ".webm", ".opus")]
+            if other:
+                return other[0]
+        except subprocess.CalledProcessError:
+            if attempt == 0:
+                update_ytdlp()
+                continue
+        except subprocess.TimeoutExpired:
+            print(f"❌ Audio download timed out for {vid_id}")
+            db.log_failure("fetcher.download_audio", "Timeout after 300s", vid_id)
+            return None
+    return None
+
 
 def download_video(video: Dict) -> Optional[Path]:
     """

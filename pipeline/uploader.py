@@ -9,6 +9,12 @@ from engine.database import db
 from engine.discord_notifier import notifier
 from engine.quota_manager import quota_manager
 
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+
+
+class AuthFatalError(Exception):
+    """Raised when YouTube OAuth credentials are invalid/expired — halts the run."""
+
 
 def upload_short(
     video_path: Path,
@@ -21,10 +27,30 @@ def upload_short(
     """
     Upload a rendered short to YouTube as a private scheduled video.
 
+    TEST_MODE: no actual upload — simulates success and returns a dummy ID.
+
     Returns the YouTube video ID on success, None on failure.
     """
     cfg = config_manager.pipeline
     max_retries = cfg.get("max_upload_retries", 3)
+
+    # ── TEST_MODE: simulate upload, don't touch YouTube ──────────────────
+    if TEST_MODE:
+        import time
+        dummy_id = f"test_{source_video_id}_{int(time.time())}"
+        print(f"🧪 [TEST MODE] Simulating upload: {seo['title']}")
+        print(f"   (no YouTube quota consumed, no actual upload)")
+        db.record_upload(
+            youtube_id=dummy_id,
+            source_video_id=source_video_id,
+            creator_name=creator_name,
+            title=seo["title"],
+            scheduled_at=scheduled_at,
+        )
+        notifier.send_upload(seo["title"],
+                             f"https://youtube.com/shorts/{dummy_id}",
+                             creator_name, scheduled_at)
+        return dummy_id
 
     # Check quota before attempting (upload costs 1600 units)
     can, reason = quota_manager.can_use_youtube(units=1600)
@@ -33,12 +59,19 @@ def upload_short(
         notifier.send_warning("Upload Skipped — Quota", reason)
         return None
 
+    # Resolve per-channel category ID (defaults to People & Blogs "22")
+    try:
+        upload_channel_cfg = config_manager.get_upload_channel()
+        category_id = str(upload_channel_cfg.get("category_id", "22"))
+    except Exception:
+        category_id = "22"
+
     body = {
         "snippet": {
             "title": seo["title"],
             "description": seo["description"],
             "tags": seo["tags"],
-            "categoryId": "22",  # People & Blogs (good for clip channels)
+            "categoryId": category_id,
             "defaultLanguage": "en",
         },
         "status": {
@@ -103,7 +136,10 @@ def upload_short(
                     "YouTube Auth Error",
                     "OAuth token is invalid. Re-authenticate via setup script.",
                 )
-                return None  # No point retrying auth errors
+                # FATAL: raise so the orchestrator halts the upload loop and
+                # surfaces the auth failure instead of continuing to burn
+                # upload attempts / waste quota on dead credentials.
+                raise AuthFatalError("YouTube OAuth token is invalid/expired")
 
             if attempt < max_retries - 1:
                 import time

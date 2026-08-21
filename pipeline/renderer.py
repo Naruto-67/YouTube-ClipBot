@@ -90,12 +90,12 @@ def _sec_to_ass(sec: float) -> str:
 def _generate_ass(words: List[Dict], clip_start: float,
                   clip_duration: float, out_path: Path) -> bool:
     """
-    Generate ASS subtitle file with word-by-word highlighting.
-    Active word = yellow with glow. Spoken words = dim white. Upcoming = white.
+    Generate ASS subtitle file with word-by-word highlighting and an optional
+    two-layer neon glow (Clone of Ghost Engine's glow + ClipBot's karaoke).
 
-    words: transcript words with ABSOLUTE timestamps (from original video).
-    clip_start: absolute start of clip in original video.
-    clip_duration: length of the rendered clip.
+    Active word = highlight color with glow. Spoken words = dim white.
+    Upcoming = white. When caption_glow is enabled, each event is duplicated
+    on a transparent 'Glow' layer (blurred colored outline) for a neon halo.
     """
     cfg = config_manager.pipeline
 
@@ -118,8 +118,29 @@ def _generate_ass(words: List[Dict], clip_start: float,
     text_color = cfg.get("caption_text_color", "&H00FFFFFF")
     highlight_color = cfg.get("caption_highlight_color", "&H0000FFFF")
     outline_color = cfg.get("caption_outline_color", "&H00000000")
+    # ── NEW: optional glow layer (Item: merged glow caption engine) ──────
+    enable_glow = cfg.get("caption_glow", True)
+    glow_color = cfg.get("caption_glow_color", "&H0000D700")
+    glow_size = cfg.get("caption_glow_size", 28)
+    glow_blur = cfg.get("caption_glow_blur", 15)
 
-    header = f"""[Script Info]
+    if enable_glow:
+        header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Glow,{font_name},{font_size},&H00000000,&H000000FF,{glow_color},&H00000000,-1,0,0,0,100,100,0,0,1,{glow_size},0,2,60,60,120,1
+Style: Default,{font_name},{font_size},{text_color},{text_color},{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,120,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    else:
+        header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -170,12 +191,111 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start_ass = _sec_to_ass(event_start)
             end_ass = _sec_to_ass(event_end)
             events.append(
-                f"Dialogue: 0,{start_ass},{end_ass},Default,,0,0,0,,{text}"
+                f"Dialogue: 1,{start_ass},{end_ass},Default,,0,0,0,,{text}"
             )
+            if enable_glow:
+                # Transparent glow layer (layer 0) — colored blurred outline
+                glow_text = (
+                    f"{{\\blur{glow_blur}}}{{\\c&H00000000&}}{text}"
+                )
+                events.append(
+                    f"Dialogue: 0,{start_ass},{end_ass},Glow,,0,0,0,,{glow_text}"
+                )
 
     ass_content = header + "\n".join(events) + "\n"
     out_path.write_text(ass_content, encoding="utf-8")
     return True
+
+
+# ── Content ID mitigation / background music ──────────────────────────────
+
+def _content_id_afilter(audio_db: float) -> str:
+    """
+    Build an audio filter chain that reduces the original audio and applies an
+    optional Contead ID pitch-shift (slightly raises/lowers pitch so the clip
+    is less likely to match Content ID's fingerprint). Pitch is applied via
+    asetrate + correction so duration is preserved.
+    """
+    cfg = config_manager.pipeline
+    # semitones: positive = up, negative = down. 0 disables.
+    semitones = float(cfg.get("content_id_pitch_shift", 0))
+    base = f"volume={audio_db}dB"
+
+    if semitones == 0:
+        return base
+
+    # 12 semitones = 1 octave (2x frequency). rate_factor = 2^(semitones/12)
+    import math
+    rate_factor = 2 ** (semitones / 12.0)
+    # asetrate resamples playback rate (changes pitch + duration); atempo corrects
+    # duration back so total length stays the same.
+    atempo = 1.0 / rate_factor
+    # atempo valid range is 0.5–100.0
+    if atempo < 0.5 or atempo > 100.0:
+        return base
+    return f"{base},asetrate=44100*{rate_factor:.6f},aresample=44100,atempo={atempo:.6f}"
+
+
+def _mix_background_music(video_path: Path, out_path: Path) -> bool:
+    """
+    Mix an optional royalty-free background music track into a rendered short.
+    Looks for MP3 files in assets/music/. Skips silently if none are configured
+    or if the mix fails (never breaks the pipeline).
+    """
+    import glob
+    music_dir = ROOT / "assets" / "music"
+    tracks = sorted(glob.glob(str(music_dir / "*.mp3")))
+    if not tracks:
+        return False
+
+    import random
+    track = random.choice(tracks)
+
+    cfg = config_manager.pipeline
+    music_vol = float(cfg.get("music_volume", 0.06))
+    fade_in = float(cfg.get("music_fade_in", 0.8))
+    fade_out = float(cfg.get("music_fade_out", 1.2))
+
+    # Probe video duration
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", str(video_path)],
+        capture_output=True, text=True, timeout=30,
+    )
+    import json as _json
+    try:
+        duration = float(_json.loads(probe.stdout)["format"]["duration"])
+    except Exception:
+        duration = 40.0
+    fade_out_start = max(0.0, duration - fade_out)
+
+    tmp = out_path.with_suffix(".music.mp4")
+    afilter = (
+        f"[1:a]volume={music_vol},"
+        f"afade=t=in:st=0:d={fade_in},"
+        f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music];"
+        f"[0:a][music]amix=inputs=2:duration=first:dropout_transition=3[aout]"
+    )
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video_path), "-stream_loop", "-1",
+             "-i", track, "-filter_complex", afilter,
+             "-map", "0:v", "-map", "[aout]",
+             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
+             str(tmp)],
+            capture_output=True, timeout=300,
+        )
+        if tmp.exists() and tmp.stat().st_size > 10_000:
+            tmp.replace(video_path)
+            print(f"🎵 Mixed background music: {Path(track).name}")
+            return True
+        if tmp.exists():
+            tmp.unlink()
+    except Exception as e:
+        print(f"⚠️  Background music mix failed (skipping): {e}")
+        if tmp.exists():
+            tmp.unlink()
+    return False
 
 
 # ── FFmpeg validation ─────────────────────────────────────────────────────
@@ -321,8 +441,10 @@ def render_short(
 
             if hook_audio_path and hook_audio_path.exists():
                 cmd += ["-i", str(hook_audio_path)]
+                # Apply original audio reduction; Content ID pitch shift only on
+                # the source track (not the hook) to keep voiceover natural.
                 af = (
-                    f"[0:a]volume={audio_db}dB[orig];"
+                    f"[0:a]{_content_id_afilter(audio_db)}[orig];"
                     "[1:a]adelay=0|0[hook];"
                     "[orig][hook]amix=inputs=2:duration=first:normalize=0[out]"
                 )
@@ -335,7 +457,7 @@ def render_short(
             else:
                 cmd += [
                     "-vf", vf,
-                    "-af", f"volume={audio_db}dB",
+                    "-af", _content_id_afilter(audio_db),
                 ]
 
             cmd += [
@@ -352,6 +474,12 @@ def render_short(
 
             # ── 6. Validate output ────────────────────────────────────
             if _validate_output(out_path):
+                # Optional background music (silent no-op if no tracks present)
+                if cfg.get("add_background_music", False):
+                    _mix_background_music(out_path, out_path)
+                    # Re-validate after music remux
+                    if not _validate_output(out_path):
+                        print("⚠️  Music remux produced invalid file — using rendered version")
                 print(f"✅ Rendered: {out_path.name}")
                 return out_path
             else:
