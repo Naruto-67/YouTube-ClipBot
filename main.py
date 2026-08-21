@@ -4,6 +4,9 @@
 ClipBot entry point.
 
 Checks kill switch → restores DB → runs pipeline → persists DB.
+
+TEST_MODE: set TEST_MODE=true env var to run a dry-run pipeline that
+produces no YouTube API calls, consumes no quota, and simulates uploads.
 """
 import os
 import sys
@@ -11,24 +14,26 @@ import traceback
 
 
 def main():
+    TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+
     # ── Kill switch ───────────────────────────────────────────────────────
-    # Treat only explicit "true" / "1" as enabled.
-    # Empty string (GitHub Actions var not set), "false", or any other
-    # value halts the pipeline. Default is "true" when env var is absent.
-    raw_enabled = os.environ.get("CLIPBOT_ENABLED", "true").strip().lower()
-    # Treat absent/empty as "true" (backwards compat when var not configured)
-    enabled = raw_enabled if raw_enabled else "true"
-    if enabled not in ("true", "1"):
-        print(f"🔴 CLIPBOT_ENABLED={raw_enabled!r} — system halted.")
-        # Still notify Discord so you know the kill switch is active
-        try:
-            from engine.discord_notifier import notifier
-            notifier.send_info("Kill Switch Active",
-                               f"CLIPBOT_ENABLED={raw_enabled!r}. "
-                               "Set to `true` to resume.")
-        except Exception:
-            pass
-        sys.exit(0)
+    # In TEST_MODE, the kill switch is ignored (always run).
+    if not TEST_MODE:
+        raw_enabled = os.environ.get("CLIPBOT_ENABLED", "true").strip().lower()
+        enabled = raw_enabled if raw_enabled else "true"
+        if enabled not in ("true", "1"):
+            print(f"🔴 CLIPBOT_ENABLED={raw_enabled!r} — system halted.")
+            try:
+                from engine.discord_notifier import notifier
+                notifier.send_info("Kill Switch Active",
+                                   f"CLIPBOT_ENABLED={raw_enabled!r}. "
+                                   "Set to `true` to resume.")
+            except Exception:
+                pass
+            sys.exit(0)
+
+    if TEST_MODE:
+        print("🧪 [TEST MODE] Kill switch bypassed — running dry-run pipeline.")
 
     # ── Restore DB from SQL dump (GitHub Actions starts fresh each run) ───
     try:

@@ -2,14 +2,18 @@ google-genai>=1.56.0
 groq==0.13.1
 google-api-python-client==2.136.0
 google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.4.0
+google-auth-oauthlib==1.2.1
 faster-whisper==1.1.1
 yt-dlp[default]
 youtube-transcript-api==0.6.3
 edge-tts==7.0.2
+# Piper TTS — optional local fallback for voiceover hooks when edge-tts is
+# blocked (e.g. GitHub Actions Azure IPs). Requires the `piper` CLI + a voice
+# model; pipeline falls back gracefully if it isn't installed.
+piper-tts>=1.2.0
 opencv-python-headless==4.10.0.84
 PyYAML==6.0.2
 pytz==2024.2
 requests==2.32.3
-pydantic==2.13.4
+pydantic==2.9.2
 numpy==1.26.4

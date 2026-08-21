@@ -4,6 +4,82 @@ A fully automated YouTube Shorts pipeline that finds viral moments from creator 
 
 ---
 
+## New Features (V2)
+
+### 🧪 TEST_MODE (Dry Run — no quota, no upload)
+Set `TEST_MODE=true` to run the full pipeline without consuming any YouTube quota or uploading anything:
+- Uses a **separate test database** (`memory/clipbot_test.db` / `clipbot_test.sql`)
+- **No YouTube API calls** — discovery, subscriber count, and uploads are all simulated
+- **Real AI calls** (Gemini/Groq) still happen so you can validate clip selection quality
+- **Real rendering** happens so you can inspect the output videos
+- Trigger via GitHub Actions: **Actions → 06 Test Mode (Dry Run)** → optionally paste a video URL
+- Rendered test shorts are uploaded as **GitHub Actions artifacts** for download
+
+### 🔒 Dedup — never re-create the same shorts
+- `processed_videos` is now **never pruned** — it's a permanent dedup fingerprint
+- Videos with **any** banked clips (pending/uploaded/failed) are skipped during discovery
+- Clip selection **excludes time ranges already in the bank** for that video
+- Exact duplicate clip ranges are rejected before saving to the bank
+
+### 🧠 Narrative Coherence — clips that make sense
+- Clips are **snapped to sentence boundaries** — they start at the beginning of a new thought and end at a natural pause/punchline
+- AI prompt now requires **complete, self-contained narrative beats** (setup → tension → payoff)
+- `hook_text` must be a **verbatim quote** from the actual transcript — no invented hooks
+
+### 🔬 Auto Model Discovery
+- Queries Gemini's model list at startup and **automatically adds newer free models** (e.g. `gemini-3.0-flash`) at top priority
+- Version-scored: `3.0 > 2.5 > 2.0 > 1.5` — newer models always preferred
+- Falls back to static config if discovery fails
+- Toggle via `auto_discovery.enabled` in `config/providers.yaml`
+- **New:** also auto-discovers **Groq** text models (`discover_groq: true`) so new Llama/Gemma/Mixtral releases are picked up without code changes
+
+### 🎙️ Groq Cloud Transcription (fast fallback)
+- When YouTube captions are unavailable, ClipBot now tries **Groq's hosted `whisper-large-v3`** first (audio-only download, no local model, seconds not minutes)
+- Falls back to local faster-whisper (CPU) only if Groq fails or no `GROQ_API_KEY`
+- Config: `groq_whisper_model` in `config/pipeline.yaml`
+
+### 🔊 Piper TTS voiceover fallback
+- edge-tts (primary) now falls back to **Piper TTS** (local CPU, offline) when the Bing WebSocket is blocked on Azure IPs
+- `hook_tts_provider: auto | edge | piper` in `config/pipeline.yaml`
+- Optional dep: `piper-tts>=1.2.0` + `piper` CLI + a voice model
+
+### ⚡ Parallel chunk analysis
+- Long videos' transcript chunks are now analysed **concurrently** (bounded small thread pool) instead of serially — much faster multi-chunk clip selection
+- RPM throttling inside the LLM client still respects per-minute provider limits
+
+### 🔁 Failed-video circuit breaker
+- A source video that fails N times consecutively (`circuit_breaker_failures`, default 3) is **skipped permanently** instead of retried every run
+
+### 🎚️ Clip-bank diversity + content spacing
+- Uploads now alternate **source videos** so clips from the same video are never pushed back-to-back (content diversity)
+- Every iteration asks the bank for a clip from a *different* source, falling back only if the bank is single-source
+
+### 💽 DB indexes + failed-clip prune
+- Added indexes for the hot queries (`clip_bank.status`, `source_video_id`, `quota_log`, etc.)
+- Failed bank clips are pruned after a shorter window so they don't accumulate
+
+### 🛑 FATAL auth handling
+- An invalid/expired YouTube OAuth token now **raises a fatal error** and halts the run (instead of burning quota retrying 401s), with a Discord alert
+
+### 🎵 Background music + Content-ID mitigation
+- Optional royalty-free music under `assets/music/` (`add_background_music`, `music_volume`)
+- Optional **pitch-shift** of the source audio (`content_id_pitch_shift` semitones) so clips fingerprint differently and are less likely to trigger Content ID
+
+### 🏷️ Per-channel category
+- `category_id` in `config/channels.yaml` → applied to every upload (default `22` People & Blogs)
+
+### 📊 Weekly monitoring (API monitor + performance analyst)
+- `scripts/api_monitor.py`: weekly audit of Gemini/Groq/YouTube for deprecations, new free models, quota changes → posts to Discord
+- `scripts/performance_analyst.py`: optional Analytics feedback loop (`performance_feedback`) that learns which clip_types perform best
+
+### 🧹 Structured logging
+- `engine/logger.py`: timestamped, tagged, level-coded console logs across the pipeline (matches Ghost Engine's logger)
+
+### 🔁 Dependabot auto-update
+- `.github/dependabot.yml` + `00_auto_merge_deps.yml`: weekly dependency scan, auto-merge of safe patch/minor bumps, manual review for major bumps and fragile native-binary packages (faster-whisper, opencv)
+
+---
+
 ## How It Works
 
 ```
@@ -247,10 +323,12 @@ This means a single good video keeps the channel going for days, and the channel
 | Workflow | Schedule | Description |
 |---|---|---|
 | `01_daily_pipeline` | 14:00 UTC daily | Main pipeline — discovery, bank, upload |
-| `02_weekly_maintenance` | Sunday 10:00 UTC | Token health, post-upload monitor, DB cleanup |
+| `02_weekly_maintenance` | Sunday 10:00 UTC | Token health, post-upload monitor, DB cleanup, API monitor, performance analyst |
 | `03_cache_nuke` | Manual only | Purge all GitHub Actions caches |
 | `04_system_control` | Manual only | Enable/disable pipeline with Discord notification |
 | `05_run_tests` | On push/PR | Run test suite |
+| `06_test_mode` | Manual only | Dry-run pipeline — no quota, no upload, artifact output |
+| `00_auto_merge_deps` | On Dependabot PR | Auto-merge safe dependency bumps + flag fragile/major |
 
 ---
 
@@ -389,15 +467,17 @@ clipbot/
 │   ├── database.py               ← SQLite: clip_bank, manual_queue, quotas, etc.
 │   ├── quota_manager.py          ← Per-provider quota tracking + fallback
 │   ├── llm_client.py             ← Unified AI client + fallback chain
+│   ├── model_discovery.py        ← Auto model discovery (Gemini + Groq)
+│   ├── logger.py                 ← Structured, tagged console logging
 │   └── discord_notifier.py       ← Discord webhook notifications
 │
 ├── pipeline/
 │   ├── orchestrator.py           ← Master controller: queue → bank → discover → upload
 │   ├── fetcher.py                ← yt-dlp discovery + download + manual queue resolver
-│   ├── transcriber.py            ← Whisper: single-pass + chunked for long videos
-│   ├── clip_selector.py          ← AI clip selection: dynamic count + chunked analysis
-│   ├── renderer.py               ← FFmpeg: smart crop, captions, vignette
-│   ├── voiceover.py              ← edge-tts hook generation
+│   ├── transcriber.py            ← YouTube captions → Groq Whisper → faster-whisper
+│   ├── clip_selector.py          ← AI clip selection: parallel chunked analysis + dedup
+│   ├── renderer.py               ← FFmpeg: smart crop, glow captions, music, pitch-shift
+│   ├── voiceover.py              ← Hook TTS: edge-tts → Piper fallback
 │   ├── seo_generator.py          ← AI SEO metadata
 │   ├── quality_checker.py        ← ffprobe + AI metadata QC
 │   ├── scheduler.py              ← Dynamic publish time (Analytics or bootstrap)
@@ -408,20 +488,28 @@ clipbot/
 │   ├── download_font.py          ← Downloads Anton caption font
 │   ├── maintenance.py            ← Weekly DB prune + vacuum
 │   ├── token_health.py           ← Weekly API key validation
-│   └── post_monitor.py           ← Weekly uploaded shorts status check
+│   ├── post_monitor.py           ← Weekly uploaded shorts status check
+│   ├── api_monitor.py            ← Weekly provider deprecation/new-model audit
+│   └── performance_analyst.py    ← Optional Analytics feedback loop
 │
 ├── tests/
-│   ├── test_clip_selector.py     ← 14 clip validation tests
-│   └── test_quota_manager.py     ← 13 quota tracking tests
+│   ├── test_clip_selector.py     ← Clip validation tests
+│   ├── test_quota_manager.py     ← Quota tracking tests
+│   └── test_dedup_and_coherence.py ← Dedup + sentence snapping + model scoring
 │
 ├── assets/fonts/                 ← Anton-Regular.ttf (caption font)
+├── assets/music/                 ← Optional royalty-free short background music
 ├── memory/                       ← clipbot.sql + quota_state.json (auto-generated)
 ├── temp/                         ← Working directory (auto-cleaned after each run)
 │
-└── .github/workflows/
-    ├── 01_daily_pipeline.yml     ← Main daily run
-    ├── 02_weekly_maintenance.yml ← Weekly health + cleanup
-    ├── 03_cache_nuke.yml         ← Manual cache purge
-    ├── 04_system_control.yml     ← Kill switch
-    └── 05_run_tests.yml          ← Tests on push/PR
+└── .github/
+    ├── dependabot.yml            ← Weekly dependency scan config
+    └── workflows/
+        ├── 00_auto_merge_deps.yml ← Auto-merge safe Dependabot PRs
+        ├── 01_daily_pipeline.yml  ← Main daily run
+        ├── 02_weekly_maintenance.yml ← Weekly health + cleanup + audits
+        ├── 03_cache_nuke.yml      ← Manual cache purge
+        ├── 04_system_control.yml  ← Kill switch
+        ├── 05_run_tests.yml       ← Tests on push/PR
+        └── 06_test_mode.yml       ← Dry-run pipeline (no quota, no upload)
 ```
