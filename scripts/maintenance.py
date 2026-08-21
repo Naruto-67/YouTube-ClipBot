@@ -21,8 +21,11 @@ def run():
     cfg = config_manager.pipeline
 
     # 1 — Prune old DB records
+    # NOTE: processed_videos is NEVER pruned (it's the permanent dedup
+    # fingerprint that prevents the same video from being re-discovered).
+    # The prune_old_records method already skips processed_videos.
     pruned = db.prune_old_records(
-        processed_videos_days=cfg.get("prune_processed_videos_days", 90),
+        processed_videos_days=99999,  # Never prune — pass a large value as safety
         quota_log_days=cfg.get("prune_quota_log_days", 30),
         ai_reliability_days=cfg.get("prune_ai_reliability_days", 14),
         failures_days=cfg.get("prune_failures_days", 14),
