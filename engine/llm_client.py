@@ -228,5 +228,70 @@ class LLMClient:
         db.log_failure("llm_client", f"All {max_retries + 1} attempts failed", call_type)
         return None
 
+    def generate_text(
+        self,
+        prompt: str,
+        system_prompt: str,
+        call_type: str = "general",
+        max_retries: int = 2,
+    ) -> Optional[str]:
+        """
+        Call the best available AI model and return the RAW response text.
+
+        Unlike generate() (which forces strict JSON for structured outputs),
+        this is for prose outputs (audits, analysis, summaries). Same fallback
+        chain + quota safety. Returns None if all attempts fail.
+        """
+        attempted_models = set()
+
+        for attempt in range(max_retries + 1):
+            model_info = quota_manager.get_best_available_model()
+
+            if model_info is None:
+                print("❌ All AI models exhausted for today.")
+                db.log_failure("llm_client", "All models exhausted", call_type)
+                return None
+
+            provider, model_name, _ = model_info
+
+            if model_name in attempted_models and attempt < max_retries:
+                time.sleep(2)
+                continue
+            attempted_models.add(model_name)
+
+            quota_manager.wait_for_rpm_if_needed(provider, model_name)
+
+            try:
+                print(f"🤖 [{call_type}] Using {model_name}")
+
+                if provider == "gemini":
+                    raw = self._call_gemini(model_name, prompt, system_prompt)
+                elif provider == "groq":
+                    raw = self._call_groq(model_name, prompt, system_prompt)
+                else:
+                    continue
+
+                quota_manager.record_model_use(provider, model_name)
+                db.log_ai_call(model_name, call_type, True)
+                return raw or None
+
+            except Exception as e:
+                err_str = str(e)
+                is_rate_limit = any(x in err_str.lower() for x in
+                                    ["429", "rate limit", "resource exhausted",
+                                     "quota", "too many requests"])
+                print(f"⚠️  {model_name} error: {err_str[:100]}")
+                db.log_ai_call(model_name, call_type, False)
+
+                if is_rate_limit:
+                    quota_manager.mark_model_exhausted(provider, model_name)
+
+                if attempt < max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+
+        db.log_failure("llm_client", f"All {max_retries + 1} attempts failed", call_type)
+        return None
+
 
 llm_client = LLMClient()

@@ -1,5 +1,6 @@
 # engine/quota_manager.py
 import json
+import os
 import time
 from collections import deque
 from datetime import datetime
@@ -9,9 +10,11 @@ from typing import Dict, Optional, Tuple
 import pytz
 
 from engine.config_manager import config_manager
+from engine.model_discovery import get_effective_models
 
 ROOT = Path(__file__).parent.parent
-STATE_PATH = ROOT / "memory" / "quota_state.json"
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+STATE_PATH = ROOT / "memory" / ("quota_state_test.json" if TEST_MODE else "quota_state.json")
 
 PT = pytz.timezone("US/Pacific")
 UTC = pytz.utc
@@ -27,6 +30,11 @@ class QuotaManager:
     - RPM is tracked via a sliding 60-second window (not per-minute bucket)
     - TPM is tracked per 60-second window as well
     - All counters persist to disk so a crash mid-run doesn't lose state
+
+    TEST_MODE:
+    - Uses a separate quota_state_test.json file
+    - YouTube quota is never consumed (can_use_youtube always True)
+    - AI model quotas still tracked (real AI calls happen in test mode)
     """
 
     def __init__(self):
@@ -122,6 +130,9 @@ class QuotaManager:
     # ── Public: YouTube ───────────────────────────────────────────────────
 
     def can_use_youtube(self, units: int) -> Tuple[bool, str]:
+        # TEST_MODE: never consume YouTube quota, always allow
+        if TEST_MODE:
+            return True, "ok (test mode)"
         daily_limit = config_manager.providers.get("youtube", {}).get("daily_units", 10000)
         used = self._get_yt_units()
         if used + units > daily_limit:
@@ -129,18 +140,27 @@ class QuotaManager:
         return True, "ok"
 
     def record_youtube(self, units: int, operation: str = ""):
+        # TEST_MODE: don't consume YouTube quota
+        if TEST_MODE:
+            return
         from engine.database import db
         self._inc_yt_units(units)
         db.log_quota("youtube", units, operation)
 
     def youtube_units_remaining(self) -> int:
+        if TEST_MODE:
+            return 999999
         daily_limit = config_manager.providers.get("youtube", {}).get("daily_units", 10000)
         return max(0, daily_limit - self._get_yt_units())
 
     # ── Public: AI models ─────────────────────────────────────────────────
 
+    def _get_all_models(self) -> list:
+        """Return all models (Gemini + Groq) with auto-discovery merged."""
+        return get_effective_models()
+
     def can_use_model(self, provider: str, model_name: str) -> Tuple[bool, str]:
-        models = config_manager.providers.get(provider, {}).get("models", [])
+        models = self._get_all_models()
         cfg = next((m for m in models if m["name"] == model_name), None)
         if cfg is None:
             return False, f"Unknown model: {model_name}"
@@ -162,7 +182,6 @@ class QuotaManager:
         self._inc_rpd(provider, model_name)
         db.log_quota(f"ai_{provider}", 1, "generate", model_name)
 
-
     def mark_model_exhausted(self, provider: str, model_name: str):
         """
         Spike this model's RPD counter to its daily limit so can_use_model()
@@ -173,7 +192,7 @@ class QuotaManager:
         quota is exhausted on the provider side even if our local counter
         thinks otherwise (e.g. after a DB reset on a fresh runner).
         """
-        models = config_manager.providers.get(provider, {}).get("models", [])
+        models = self._get_all_models()
         cfg = next((m for m in models if m["name"] == model_name), None)
         if cfg is None:
             return
@@ -193,17 +212,15 @@ class QuotaManager:
         model that is currently available (within RPM and RPD limits).
         Returns None if all models are exhausted for today.
         """
-        providers_cfg = config_manager.providers
-        all_models = []
-
-        for provider in ("gemini", "groq"):
-            for m in providers_cfg.get(provider, {}).get("models", []):
-                all_models.append((provider, m))
+        all_models = self._get_all_models()
 
         # Sort by tier ascending (tier 1 = best)
-        all_models.sort(key=lambda x: x[1].get("tier", 99))
+        all_models.sort(key=lambda x: x.get("tier", 99))
 
-        for provider, m_cfg in all_models:
+        for m_cfg in all_models:
+            # Provider is explicit on the config (set by model_discovery) so
+            # names like 'gemma2-9b-it' or 'llama3-70b-8192' resolve correctly.
+            provider = m_cfg.get("provider", "groq" if "llama" in m_cfg["name"] or "gemma" in m_cfg["name"] or "mixtral" in m_cfg["name"] else "gemini")
             ok, _ = self.can_use_model(provider, m_cfg["name"])
             if ok:
                 return provider, m_cfg["name"], m_cfg
@@ -212,7 +229,7 @@ class QuotaManager:
 
     def wait_for_rpm_if_needed(self, provider: str, model_name: str):
         """Block until the RPM window has capacity."""
-        models = config_manager.providers.get(provider, {}).get("models", [])
+        models = self._get_all_models()
         cfg = next((m for m in models if m["name"] == model_name), None)
         if cfg is None:
             return
@@ -247,19 +264,19 @@ class QuotaManager:
         }
 
         report["models"] = {}
-        for provider in ("gemini", "groq"):
-            for m in providers_cfg.get(provider, {}).get("models", []):
-                name = m["name"]
-                rpd = m.get("rpd", 0)
-                used = self._get_rpd(provider, name)
-                report["models"][name] = {
-                    "provider": provider,
-                    "tier": m.get("tier", 99),
-                    "rpd_used": used,
-                    "rpd_limit": rpd,
-                    "remaining": max(0, rpd - used),
-                    "pct_used": round(used / rpd * 100, 1) if rpd > 0 else 0,
-                }
+        for m in self._get_all_models():
+            name = m["name"]
+            provider = m.get("provider", "groq" if "llama" in name or "gemma" in name or "mixtral" in name else "gemini")
+            rpd = m.get("rpd", 0)
+            used = self._get_rpd(provider, name)
+            report["models"][name] = {
+                "provider": provider,
+                "tier": m.get("tier", 99),
+                "rpd_used": used,
+                "rpd_limit": rpd,
+                "remaining": max(0, rpd - used),
+                "pct_used": round(used / rpd * 100, 1) if rpd > 0 else 0,
+            }
 
         return report
 

@@ -1,4 +1,5 @@
 # engine/database.py
+import os
 import sqlite3
 import json
 import contextlib
@@ -8,14 +9,19 @@ from typing import Optional, List, Dict, Any
 
 ROOT = Path(__file__).parent.parent
 MEMORY_DIR = ROOT / "memory"
-DB_PATH = MEMORY_DIR / "clipbot.db"
-SQL_DUMP_PATH = MEMORY_DIR / "clipbot.sql"
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+DB_PATH = MEMORY_DIR / ("clipbot_test.db" if TEST_MODE else "clipbot.db")
+SQL_DUMP_PATH = MEMORY_DIR / ("clipbot_test.sql" if TEST_MODE else "clipbot.sql")
 
 
 class Database:
     """
     SQLite database with WAL mode for GitHub Actions safety.
     Persisted as plain SQL text dump for git-friendly diffs.
+
+    TEST_MODE:
+    - Uses a separate clipbot_test.db / clipbot_test.sql
+    - Never touches the production database
     """
 
     def __init__(self):
@@ -123,11 +129,41 @@ class Database:
                     confidence      REAL DEFAULT 0.0
                 );
             """)
+            # ── Indexes for frequent queries ──────────────────────────────
+            try:
+                conn.executescript("""
+                    CREATE INDEX IF NOT EXISTS idx_clip_bank_status
+                        ON clip_bank (status);
+                    CREATE INDEX IF NOT EXISTS idx_clip_bank_source
+                        ON clip_bank (source_video_id, status);
+                    CREATE INDEX IF NOT EXISTS idx_clip_bank_creator
+                        ON clip_bank (creator_name, status);
+                    CREATE INDEX IF NOT EXISTS idx_bank_range
+                        ON clip_bank (source_video_id, start_seconds, end_seconds);
+                    CREATE INDEX IF NOT EXISTS idx_processed_video_id
+                        ON processed_videos (video_id);
+                    CREATE INDEX IF NOT EXISTS idx_manual_queue_status
+                        ON manual_queue (status);
+                    CREATE INDEX IF NOT EXISTS idx_uploaded_status
+                        ON uploaded_shorts (status);
+                    CREATE INDEX IF NOT EXISTS idx_quota_api
+                        ON quota_log (api_name, logged_at);
+                    CREATE INDEX IF NOT EXISTS idx_ai_reliability
+                        ON ai_reliability (call_type, logged_at);
+                """)
+            except Exception:
+                pass
+            # ── Circuit breaker column (safe migration for existing DBs) ──
+            try:
+                conn.execute("ALTER TABLE processed_videos ADD COLUMN failed_attempts INTEGER DEFAULT 0")
+            except Exception:
+                pass  # Column already exists (or DB is fresh)
             conn.commit()
 
     # ── Processed videos ─────────────────────────────────────────────────
 
-    def is_video_processed(self, video_id: str) -> bool:
+    def is_video_processed(self, video_id: str,
+                           circuit_breaker_limit: int = 3) -> bool:
         """
         Returns True only for videos that completed successfully.
         Videos that failed at download or transcription are NOT considered
@@ -135,25 +171,44 @@ class Database:
 
         Statuses that block re-processing: 'banked', 'no_clips'
         Statuses that allow retry:         'download_failed', 'transcription_failed'
+        Circuit breaker: after `circuit_breaker_limit` consecutive failures the
+        video is treated as permanently processed (status flips to 'circuit_open')
+        so we never re-attempt a video that keeps failing.
         """
         with self._conn() as conn:
             row = conn.execute(
-                """SELECT 1 FROM processed_videos
-                   WHERE video_id = ?
-                   AND status NOT IN ('download_failed', 'transcription_failed')""",
+                """SELECT status FROM processed_videos
+                   WHERE video_id = ?""",
                 (video_id,)
             ).fetchone()
-            return row is not None
+            if row is None:
+                return False
+            status = row["status"]
+            if status not in ("download_failed", "transcription_failed", "error"):
+                return True
+            # Failure status: allow retry only if under the circuit-breaker limit
+            attempts = row["failed_attempts"] or 0
+            return attempts >= circuit_breaker_limit
 
     def mark_video_processed(self, video_id: str, creator_name: str, title: str,
                               status: str, clips_made: int = 0):
         with self._conn() as conn:
+            # Circuit breaker: bump a counter on failure statuses, reset on success
+            failure_statuses = ("download_failed", "transcription_failed", "error")
+            prev = conn.execute(
+                "SELECT failed_attempts FROM processed_videos WHERE video_id=?",
+                (video_id,)
+            ).fetchone()
+            attempts = 0
+            if status in failure_statuses:
+                attempts = (prev["failed_attempts"] or 0) + 1 if prev else 1
             conn.execute(
                 """INSERT OR REPLACE INTO processed_videos
-                   (video_id, creator_name, title, status, clips_made, processed_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (video_id, creator_name, title, status, clips_made,
+                    processed_at, failed_attempts)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (video_id, creator_name, title, status, clips_made,
-                 datetime.utcnow().isoformat()),
+                 datetime.utcnow().isoformat(), attempts),
             )
             conn.commit()
 
@@ -184,20 +239,41 @@ class Database:
             conn.commit()
             return cursor.lastrowid
 
-    def get_pending_bank_clips(self, limit: int = 10) -> List[Dict]:
-        """Return pending clips from bank, highest confidence first."""
+    def get_pending_bank_clips(self, limit: int = 10,
+                               exclude_source_ids: List[str] = None) -> List[Dict]:
+        """
+        Return pending clips from bank, highest confidence first.
+
+        exclude_source_ids: if provided, prefer clips whose source_video_id is
+        NOT in this set (content diversity — avoid uploading back-to-back clips
+        from the same source video). If all pending clips share the excluded
+        sources, falls back to returning the best clip regardless so the bank
+        never stalls.
+        """
+        exclude = exclude_source_ids or []
+        result = []
         with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT * FROM clip_bank WHERE status = 'pending'
-                   ORDER BY confidence DESC LIMIT ?""",
-                (limit,),
-            ).fetchall()
-            result = []
+            rows = None
+            if exclude:
+                placeholders = ",".join("?" for _ in exclude)
+                rows = conn.execute(
+                    f"""SELECT * FROM clip_bank WHERE status = 'pending'
+                        AND source_video_id NOT IN ({placeholders})
+                        ORDER BY confidence DESC LIMIT ?""",
+                    tuple(exclude) + (limit,)
+                ).fetchall()
+            if not rows or len(rows) == 0:
+                # All pending are excluded sources (or no exclusion) — fall back
+                rows = conn.execute(
+                    """SELECT * FROM clip_bank WHERE status = 'pending'
+                       ORDER BY confidence DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
             for r in rows:
                 d = dict(r)
                 d["transcript_words"] = json.loads(d.get("transcript_words_json") or "[]")
                 result.append(d)
-            return result
+        return result
 
     def get_bank_count(self, status: str = "pending") -> int:
         with self._conn() as conn:
@@ -230,6 +306,48 @@ class Database:
                    WHERE status = 'pending'"""
             ).fetchall()
             return [r[0] for r in rows]
+
+    # ── Dedup helpers (prevent same video/shorts being re-created) ────────
+
+    def has_banked_clip(self, source_video_id: str, start_seconds: float,
+                        end_seconds: float) -> bool:
+        """
+        Check if a clip with the same source video + time range already
+        exists in the bank (any status — pending, uploaded, or failed).
+        This prevents duplicate shorts from ever being created.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT 1 FROM clip_bank
+                   WHERE source_video_id = ?
+                   AND ABS(start_seconds - ?) < 2.0
+                   AND ABS(end_seconds - ?) < 2.0
+                   LIMIT 1""",
+                (source_video_id, start_seconds, end_seconds),
+            ).fetchone()
+            return row is not None
+
+    def get_banked_time_ranges(self, source_video_id: str) -> List[Dict]:
+        """
+        Return all time ranges already banked for a source video.
+        Used by clip_selector to exclude already-used moments.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT start_seconds, end_seconds FROM clip_bank
+                   WHERE source_video_id = ?""",
+                (source_video_id,),
+            ).fetchall()
+            return [{"start": r["start_seconds"], "end": r["end_seconds"]} for r in rows]
+
+    def has_any_banked_clips(self, source_video_id: str) -> bool:
+        """Check if a video has ANY clips in the bank (any status)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM clip_bank WHERE source_video_id = ? LIMIT 1",
+                (source_video_id,),
+            ).fetchone()
+            return row is not None
 
     # ── Manual queue ─────────────────────────────────────────────────────
 
@@ -429,13 +547,16 @@ class Database:
                           quota_log_days: int = 30, ai_reliability_days: int = 14,
                           failures_days: int = 14, analytics_days: int = 60,
                           clip_bank_days: int = 30) -> int:
+        """
+        Prune old records. NOTE: processed_videos is NEVER pruned — it's the
+        permanent dedup fingerprint that prevents the same video from being
+        re-discovered and re-clipped. Only quota_log, ai_reliability, failures,
+        analytics_history, and uploaded bank clips are pruned.
+        """
         now = datetime.utcnow()
         total = 0
         with self._conn() as conn:
-            total += conn.execute(
-                "DELETE FROM processed_videos WHERE processed_at < ?",
-                ((now - timedelta(days=processed_videos_days)).isoformat(),)
-            ).rowcount
+            # processed_videos is intentionally NOT pruned — permanent dedup
             total += conn.execute(
                 "DELETE FROM quota_log WHERE logged_at < ?",
                 ((now - timedelta(days=quota_log_days)).isoformat(),)
@@ -457,6 +578,13 @@ class Database:
                 """DELETE FROM clip_bank WHERE status='uploaded'
                    AND uploaded_at < ?""",
                 ((now - timedelta(days=clip_bank_days)).isoformat(),)
+            ).rowcount
+            # Prune FAILED bank clips after a shorter window so retries on
+            # never-succeeding clips don't accumulate forever.
+            total += conn.execute(
+                """DELETE FROM clip_bank WHERE status='failed'
+                   AND created_at < ?""",
+                ((now - timedelta(days=max(3, clip_bank_days // 2))).isoformat(),)
             ).rowcount
             conn.execute("VACUUM")
             conn.commit()
