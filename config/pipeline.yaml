@@ -49,6 +49,9 @@ min_clip_seconds: 30
 max_clip_seconds: 60
 ai_confidence_threshold: 0.60
 ai_confidence_floor: 0.30
+# After this many consecutive failures a source video is skipped permanently
+# (circuit breaker) instead of retried every single run.
+circuit_breaker_failures: 3
 
 # ── Caption style ───────────────────────────────────────────
 caption_words_per_line: 4
@@ -57,7 +60,22 @@ caption_font_size: 85
 caption_text_color: "&H00FFFFFF"
 caption_highlight_color: "&H0000FFFF"
 caption_outline_color: "&H00000000"
-caption_glow_color: "&H800000FF"
+caption_glow: true                 # Two-layer neon glow captions
+caption_glow_color: "&H0000D700"   # Neon glow halo color (ASS &HAABBGGRR)
+caption_glow_size: 28              # Outline thickness of the glow layer (px)
+caption_glow_blur: 15              # Gaussian blur strength on the glow layer
+
+# ── Content ID mitigation ─────────────────────────────────────
+# Raise the pitch of the source audio (semitones, +/-) so the clip fingerprint
+# differs from the original and is less likely to trigger Content ID. 0 disables.
+content_id_pitch_shift: 0
+
+# ── Background music ──────────────────────────────────────────
+# Drops royalty-free MP3s from assets/music/ under the source audio.
+add_background_music: false
+music_volume: 0.06                 # Music amplitude relative to source
+music_fade_in: 0.8                 # Fade music in over N seconds
+music_fade_out: 1.2                # Fade music out over N seconds
 
 # ── Video rendering ─────────────────────────────────────────
 output_width: 1080
@@ -72,6 +90,12 @@ vignette_angle: 0.785
 add_voiceover_hook: false    # Disabled: Bing TTS WebSocket blocked on Azure IPs
 hook_max_words: 10
 hook_voice: "en-US-GuyNeural"
+# TTS provider: auto (edge-tts → Piper fallback), edge, or piper
+hook_tts_provider: "auto"
+# Piper TTS voice model name (used only when provider is piper/auto-fallback)
+hook_piper_model: "en_US-amy-medium"
+# Path to the piper binary (leave as "piper" for a pip-installed CLI)
+piper_bin: "piper"
 
 # ── Scheduling ──────────────────────────────────────────────
 upload_buffer_hours: 2
@@ -80,6 +104,11 @@ default_upload_windows_utc:
   - "19:00"
   - "22:00"
   - "01:00"
+
+# ── Performance feedback loop ─────────────────────────────────
+# When enabled, weekly maintenance pulls Analytics and learns which
+# clip_types perform best (used to seed future clip selection).
+performance_feedback: false
 
 # ── Storage cleanup ─────────────────────────────────────────
 prune_processed_videos_days: 90

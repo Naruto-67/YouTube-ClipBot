@@ -10,6 +10,11 @@ clip_selector:
     scrolling: genuine funny reactions, shocking outcomes, intense challenges,
     emotional moments, and satisfying conclusions.
 
+    You ONLY select clips that are COMPLETE, SELF-CONTAINED narrative beats.
+    A viewer with zero context (no prior knowledge of the video) must be able
+    to watch the clip and fully understand what is happening, why it matters,
+    and what the outcome is.
+
   user: |
     VIDEO TITLE: {title}
     CREATOR: {creator}
@@ -23,12 +28,22 @@ clip_selector:
 
     STRICT RULES:
     1. Each clip: between {min_seconds}s and {max_seconds}s long
-    2. NEVER start mid-sentence — start at the beginning of a new thought/moment
-    3. NEVER end mid-sentence — end at a natural pause or conclusion
-    4. Each clip must be SELF-CONTAINED — makes sense without seeing the rest
-    5. Prioritize: funny reactions, shocking reveals, challenge outcomes, emotional peaks
-    6. No two clips can overlap in time
-    7. confidence must reflect how genuinely viral-worthy this clip is (0.0–1.0)
+    2. A clip must be a COMPLETE MOMENT with a clear arc: setup → tension → payoff.
+       Think of it like a mini-story. If the moment's meaning depends on context
+       that happens BEFORE the clip starts, do NOT select it.
+    3. NEVER start mid-sentence — start at the beginning of a new thought/moment
+    4. NEVER end mid-sentence — end at a natural pause, punchline, or conclusion
+    5. Avoid: transitional conversation, chit-chat, inside jokes only the source
+       audience would understand, mid-argument fragments, or setup without payoff
+    6. Prefer moments where something VISIBLE happens: a reveal, a reaction,
+       a result, a twist, a challenge outcome
+    7. hook_text MUST be a VERBATIM quote taken directly from the clip's actual
+       spoken words (max 10 words). NEVER invent or paraphrase words that are
+       not in the transcript. If the clip's opening line is too long, shorten it
+       by keeping the first words exactly as spoken.
+    8. No two clips can overlap in time
+    9. confidence must reflect how genuinely viral-worthy this clip is (0.0–1.0).
+       Penalize clips that lack a payoff or feel incomplete.
 
     Return ONLY valid JSON, no preamble, no markdown fences:
     {{

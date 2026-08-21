@@ -4,6 +4,17 @@
 # tier, update the numbers here — no code changes needed.
 # ─────────────────────────────────────────────────────────────
 
+# ── Auto model discovery ────────────────────────────────────
+# When enabled, the system queries Gemini's model list at
+# startup and automatically adds newer free models (e.g.
+# gemini-3.0-flash) at the top priority tier without code
+# changes. Set to false to rely purely on the static list below.
+auto_discovery:
+  enabled: true
+  max_stable_models: 4
+  max_preview_models: 2
+  discover_groq: true      # Also discover Groq text models dynamically
+
 youtube:
   daily_units: 10000
   reset_timezone: "US/Pacific"   # YouTube quota resets at PT midnight

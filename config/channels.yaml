@@ -5,6 +5,10 @@
 upload_channel:
   credentials_env: "YOUTUBE_CREDENTIALS"
   discord_webhook_env: "DISCORD_WEBHOOK"
+  # YouTube video category ID applied to all uploads.
+  # 22 = People & Blogs (default for clip channels). See:
+  # https://developers.google.com/youtube/v3/docs/videos#snippet.categoryId
+  category_id: "22"
 
 # ─────────────────────────────────────────────────────────────
 # SOURCE CREATORS (channels you clip from)
