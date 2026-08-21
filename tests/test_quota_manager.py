@@ -9,7 +9,8 @@ from engine.quota_manager import QuotaManager
 def qm(tmp_path):
     """Fresh QuotaManager with isolated state file."""
     with patch("engine.quota_manager.STATE_PATH", tmp_path / "quota_state.json"), \
-         patch("engine.quota_manager.config_manager") as mock_cfg:
+         patch("engine.quota_manager.config_manager") as mock_cfg, \
+         patch("engine.quota_manager.get_effective_models") as mock_models:
 
         mock_cfg.providers = {
             "youtube": {
@@ -31,6 +32,13 @@ def qm(tmp_path):
             },
         }
         mock_cfg.get_yt_unit_cost = MagicMock(return_value=1)
+
+        # Mock get_effective_models to return the static list (no discovery)
+        mock_models.return_value = [
+            {"name": "gemini-2.5-flash", "tier": 1, "rpm": 10, "rpd": 250, "stable": True},
+            {"name": "gemini-2.5-flash-lite", "tier": 2, "rpm": 15, "rpd": 1000, "stable": True},
+            {"name": "llama-3.3-70b-versatile", "tier": 3, "rpm": 30, "rpd": 14400, "stable": True},
+        ]
 
         qm = QuotaManager.__new__(QuotaManager)
         qm._state = {}
@@ -80,7 +88,6 @@ class TestAIModelSelection:
             ("gemini", "gemini-2.5-flash-lite"),
             ("groq", "llama-3.3-70b-versatile"),
         ]:
-            limits = {"gemini": 250, "gemini": 1000, "groq": 14400}
             qm._state[f"{provider}:{model}:rpd"] = {
                 "date": qm._date_key(provider), "value": 99999
             }
@@ -97,3 +104,16 @@ class TestAIModelSelection:
         ok, msg = qm.can_use_model("gemini", "gemini-2.5-flash")
         assert ok is False
         assert "RPM" in msg
+
+    def test_discovered_model_used(self, qm):
+        """Test that a discovered newer model is preferred."""
+        with patch("engine.quota_manager.get_effective_models") as mock_models:
+            mock_models.return_value = [
+                {"name": "gemini-3.0-flash", "tier": 1, "rpm": 10, "rpd": 250, "stable": True, "discovered": True},
+                {"name": "gemini-2.5-flash", "tier": 2, "rpm": 10, "rpd": 250, "stable": True},
+                {"name": "llama-3.3-70b-versatile", "tier": 3, "rpm": 30, "rpd": 14400, "stable": True},
+            ]
+            result = qm.get_best_available_model()
+            assert result is not None
+            _, model_name, _ = result
+            assert model_name == "gemini-3.0-flash"
