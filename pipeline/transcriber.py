@@ -43,8 +43,23 @@ def get_transcript_via_api(video_id: str,
             NoTranscriptFound,
         )
 
+        # Inject cookies to bypass YouTube IP blocks
+        import os
+        import requests
+        import http.cookiejar
+
+        session = requests.Session()
+        cookie_path = os.environ.get("YT_COOKIES_PATH", "/tmp/yt-cookies.txt")
+        if os.path.exists(cookie_path):
+            cj = http.cookiejar.MozillaCookieJar(cookie_path)
+            try:
+                cj.load(ignore_discard=True, ignore_expires=True)
+                session.cookies = cj
+            except Exception as e:
+                print(f"⚠️  Could not load cookies for Caption API: {e}")
+
         # Fetch available transcripts
-        transcript_list = YouTubeTranscriptApi().list(video_id)
+        transcript_list = YouTubeTranscriptApi(http_client=session).list(video_id)
 
         # Log all available transcripts for debugging
         available = [(t.language_code, "manual" if not t.is_generated else "auto")
