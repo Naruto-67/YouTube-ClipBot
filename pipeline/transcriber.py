@@ -44,7 +44,7 @@ def get_transcript_via_api(video_id: str,
         )
 
         # Fetch available transcripts
-        transcript_list = YouTubeTranscriptApi().list_transcripts(video_id)
+        transcript_list = YouTubeTranscriptApi().list(video_id)
 
         # Log all available transcripts for debugging
         available = [(t.language_code, "manual" if not t.is_generated else "auto")
