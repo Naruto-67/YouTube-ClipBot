@@ -41,7 +41,9 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.7, "end_seconds": 3.0,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 2.3}
-        result = _snap_to_sentence_boundaries(clip, words)
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+            mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 60}
+            result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
         # Should snap to "This" at 1.0 (start of new sentence)
         assert result["start_seconds"] == 1.0
@@ -52,7 +54,9 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.0, "end_seconds": 2.8,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 2.8}
-        result = _snap_to_sentence_boundaries(clip, words)
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+            mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 60}
+            result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
         # Should snap to "amazing!" at 2.5 (end of sentence)
         assert result["end_seconds"] == 2.5
@@ -64,8 +68,8 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.7, "end_seconds": 1.2,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 0.5}
-        with patch("engine.config_manager.config_manager.pipeline",
-                   {"min_clip_seconds": 30, "max_clip_seconds": 60}):
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+            mock_pipe.return_value = {"min_clip_seconds": 30, "max_clip_seconds": 60}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is None
 
@@ -75,8 +79,8 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.0, "end_seconds": 5.0,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 5.0}
-        with patch("engine.config_manager.config_manager.pipeline",
-                   {"min_clip_seconds": 30, "max_clip_seconds": 3}):
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+            mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 3}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
         assert result["end_seconds"] == 3.0  # trimmed to max_sec

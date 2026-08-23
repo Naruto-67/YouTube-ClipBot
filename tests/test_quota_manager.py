@@ -8,6 +8,11 @@ from engine.quota_manager import QuotaManager
 @pytest.fixture
 def qm(tmp_path):
     """Fresh QuotaManager with isolated state file."""
+    import engine.quota_manager
+    # Force TEST_MODE false explicitly to avoid context manager weirdness
+    original_test_mode = engine.quota_manager.TEST_MODE
+    engine.quota_manager.TEST_MODE = False
+    
     with patch("engine.quota_manager.STATE_PATH", tmp_path / "quota_state.json"), \
          patch("engine.quota_manager.config_manager") as mock_cfg, \
          patch("engine.quota_manager.get_effective_models") as mock_models:
@@ -45,7 +50,10 @@ def qm(tmp_path):
         qm._rpm_windows = {}
 
         with patch.object(qm, "_save_state"):
-            yield qm
+            try:
+                yield qm
+            finally:
+                engine.quota_manager.TEST_MODE = original_test_mode
 
 
 class TestYouTubeQuota:
