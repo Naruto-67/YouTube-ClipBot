@@ -7,7 +7,7 @@ Tests for the new dedup and narrative-coherence features:
 - Database dedup helpers
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 
 from pipeline.clip_selector import (
     _snap_to_sentence_boundaries,
@@ -41,7 +41,7 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.7, "end_seconds": 3.0,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 2.3}
-        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=PropertyMock) as mock_pipe:
             mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 60}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
@@ -54,7 +54,7 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.0, "end_seconds": 2.8,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 2.8}
-        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=PropertyMock) as mock_pipe:
             mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 60}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
@@ -68,7 +68,7 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.7, "end_seconds": 1.2,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 0.5}
-        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=PropertyMock) as mock_pipe:
             mock_pipe.return_value = {"min_clip_seconds": 30, "max_clip_seconds": 60}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is None
@@ -79,7 +79,7 @@ class TestSnapToSentenceBoundaries:
         clip = {"start_seconds": 0.0, "end_seconds": 5.0,
                 "clip_type": "funny", "hook_text": "", "confidence": 0.8,
                 "reason": "", "duration": 5.0}
-        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=patch.PropertyMock) as mock_pipe:
+        with patch("engine.config_manager.ConfigManager.pipeline", new_callable=PropertyMock) as mock_pipe:
             mock_pipe.return_value = {"min_clip_seconds": 1, "max_clip_seconds": 3}
             result = _snap_to_sentence_boundaries(clip, words)
         assert result is not None
