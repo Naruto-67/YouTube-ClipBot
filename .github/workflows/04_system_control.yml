@@ -22,7 +22,7 @@ jobs:
       actions: write    # Needed to update repo variables
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Apply kill switch
         env:

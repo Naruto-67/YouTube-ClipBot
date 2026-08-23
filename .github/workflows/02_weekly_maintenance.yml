@@ -2,7 +2,7 @@ name: 02 Weekly Maintenance
 
 on:
   schedule:
-    - cron: "0 10 * * 0"   # Every Sunday at 10:00 UTC
+    #- cron: "0 10 * * 0"   # Every Sunday at 10:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -15,19 +15,19 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
           fetch-depth: 1
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Cache pip dependencies
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: clipbot-pip-${{ hashFiles('requirements.txt') }}

@@ -1,0 +1,85 @@
+name: 07 ClipBot Manager
+
+# Runs every Monday morning (before the daily pipeline) to check for
+# technology drift and report improvements. Can also be triggered manually
+# for a one-off check or to apply updates immediately.
+
+on:
+  schedule:
+    - cron: "0 10 * * 1"    # Every Monday 10:00 UTC (before 14:00 daily pipeline)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (report only -- no commits)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+concurrency:
+  group: clipbot-manager
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write    # To commit auto-safe updates
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0    # Full history needed for git push
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: clipbot-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: clipbot-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+      - name: Run ClipBot Manager
+        env:
+          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
+          DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python scripts/clipbot_manager.py $DRY_RUN_FLAG
+
+      - name: Commit any auto-applied updates
+        run: |
+          git config user.name  "clipbot-manager"
+          git config user.email "manager@clipbot.ai"
+          git add config/providers.yaml scripts/clipbot_manager.py || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(manager): auto-apply weekly tech-currency updates [skip ci]"
+            for i in 1 2 3; do
+              git push && break || {
+                echo "Push conflict -- rebasing (attempt $i)"
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 3 ))
+              }
+            done
+          else
+            echo "No auto-apply changes this week."
+          fi
