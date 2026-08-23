@@ -10,18 +10,6 @@ concurrency:
   cancel-in-progress: false  # Never cancel a running pipeline mid-upload
 
 jobs:
-  run:name: 01 Daily Pipeline
-
-on:
-  schedule:
-    - cron: "0 14 * * *"   # 14:00 UTC = 6 AM PT / 9 AM ET — runs before US peak hours
-  workflow_dispatch:         # Allow manual trigger any time
-
-concurrency:
-  group: clipbot-pipeline
-  cancel-in-progress: false  # Never cancel a running pipeline mid-upload
-
-jobs:
   run:
     runs-on: ubuntu-24.04
     timeout-minutes: 180     # 3-hour hard cap
