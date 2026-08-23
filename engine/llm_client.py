@@ -39,7 +39,8 @@ class LLMClient:
 
     # ── Raw API calls ─────────────────────────────────────────────────────
 
-    def _call_gemini(self, model_name: str, prompt: str, system: str) -> str:
+    def _call_gemini(self, model_name: str, prompt: str, system: str,
+                     max_tokens: int = 2000) -> str:
         from google.genai import types
         response = self._gemini().models.generate_content(
             model=model_name,
@@ -47,7 +48,7 @@ class LLMClient:
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 temperature=0.3,
-                max_output_tokens=8000,
+                max_output_tokens=max_tokens,
                 # Forces pure JSON output — eliminates markdown fences and
                 # thinking-model preamble that cause parse failures.
                 # Gemini 2.5 Flash/Pro are "thinking" models that otherwise
@@ -57,7 +58,8 @@ class LLMClient:
         )
         return response.text
 
-    def _call_groq(self, model_name: str, prompt: str, system: str) -> str:
+    def _call_groq(self, model_name: str, prompt: str, system: str,
+                   max_tokens: int = 1500) -> str:
         response = self._groq().chat.completions.create(
             model=model_name,
             messages=[
@@ -65,7 +67,7 @@ class LLMClient:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=2000,
+            max_tokens=max_tokens,
         )
         return response.choices[0].message.content
 

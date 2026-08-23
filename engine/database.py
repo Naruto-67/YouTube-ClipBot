@@ -49,7 +49,8 @@ class Database:
                     title           TEXT,
                     status          TEXT NOT NULL,
                     clips_made      INTEGER DEFAULT 0,
-                    processed_at    TEXT NOT NULL
+                    processed_at    TEXT NOT NULL,
+                    failed_attempts INTEGER DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS clip_bank (
@@ -153,11 +154,40 @@ class Database:
                 """)
             except Exception:
                 pass
+            # ── New tables: trending snapshots, creator performance ────────
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS trending_snapshots (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recorded_at  TEXT NOT NULL,
+                    region       TEXT DEFAULT 'US',
+                    trending_tags TEXT NOT NULL,
+                    hot_clip_types TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS creator_performance (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    creator_name TEXT NOT NULL,
+                    recorded_at  TEXT NOT NULL,
+                    avg_views    INTEGER DEFAULT 0,
+                    clips_banked INTEGER DEFAULT 0,
+                    clips_viral  INTEGER DEFAULT 0
+                );
+            """)
             # ── Circuit breaker column (safe migration for existing DBs) ──
             try:
                 conn.execute("ALTER TABLE processed_videos ADD COLUMN failed_attempts INTEGER DEFAULT 0")
             except Exception:
                 pass  # Column already exists (or DB is fresh)
+            # ── Video Guardian columns (safe migration) ────────────────────
+            for col_def in [
+                "health_status TEXT DEFAULT 'ok'",
+                "last_health_check TEXT",
+                "removal_reason TEXT",
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE uploaded_shorts ADD COLUMN {col_def}")
+                except Exception:
+                    pass  # Column already exists
             conn.commit()
 
     # ── Processed videos ─────────────────────────────────────────────────
@@ -177,7 +207,7 @@ class Database:
         """
         with self._conn() as conn:
             row = conn.execute(
-                """SELECT status FROM processed_videos
+                """SELECT status, failed_attempts FROM processed_videos
                    WHERE video_id = ?""",
                 (video_id,)
             ).fetchone()
@@ -594,6 +624,114 @@ class Database:
         if DB_PATH.exists():
             return int(DB_PATH.stat().st_size / 1024)
         return 0
+
+    # ── Video Guardian ────────────────────────────────────────────────────
+
+    def get_recent_uploads_for_health_check(self,
+                                             age_hours: int = 336) -> List[Dict]:
+        """
+        Return uploaded shorts that need a health check.
+        Includes videos uploaded within age_hours that haven't been checked recently.
+        age_hours default = 336 = 14 days (guardian checks weekly lookback).
+        """
+        cutoff = (datetime.utcnow() - timedelta(hours=age_hours)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM uploaded_shorts
+                   WHERE uploaded_at > ?
+                   AND health_status != 'removed'
+                   AND (last_health_check IS NULL
+                        OR last_health_check < datetime('now', '-20 hours'))
+                   ORDER BY uploaded_at DESC""",
+                (cutoff,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_short_health(self, youtube_id: str, health_status: str,
+                            removal_reason: Optional[str], checked_at: str):
+        """Update the health status of an uploaded short."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE uploaded_shorts
+                   SET health_status=?, removal_reason=?, last_health_check=?
+                   WHERE youtube_id=?""",
+                (health_status, removal_reason, checked_at, youtube_id),
+            )
+            conn.commit()
+
+    # ── Trending Snapshots ────────────────────────────────────────────────
+
+    def save_trending_snapshot(self, tags: List[str],
+                               clip_types: List[str], region: str = "US"):
+        """Save a trending context snapshot from YouTube trending API."""
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO trending_snapshots
+                   (recorded_at, region, trending_tags, hot_clip_types)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    datetime.utcnow().isoformat(),
+                    region,
+                    json.dumps(tags),
+                    json.dumps(clip_types),
+                ),
+            )
+            conn.commit()
+
+    def get_latest_trending_snapshot(self) -> Optional[Dict]:
+        """Return the most recent trending snapshot, or None if not available."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM trending_snapshots
+                   ORDER BY recorded_at DESC LIMIT 1"""
+            ).fetchone()
+            if row:
+                d = dict(row)
+                d["top_tags"] = json.loads(d.pop("trending_tags", "[]"))
+                d["hot_clip_types"] = json.loads(d.pop("hot_clip_types", "[]"))
+                return d
+            return None
+
+    # ── Creator Performance ───────────────────────────────────────────────
+
+    def get_creator_bank_contribution(self, creator_name: str) -> int:
+        """Return total clips ever banked from this creator (any status)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM clip_bank WHERE creator_name=?",
+                (creator_name,),
+            ).fetchone()
+            return row[0] if row else 0
+
+    # ── Upload safety helpers ─────────────────────────────────────────────
+
+    def get_uploads_this_week_count(self) -> int:
+        """Return number of uploads made in the past 7 days."""
+        cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM uploaded_shorts WHERE uploaded_at > ?",
+                (cutoff,),
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_recent_upload_titles(self, days: int = 7) -> List[str]:
+        """Return titles of shorts uploaded in the past N days."""
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT title FROM uploaded_shorts WHERE uploaded_at > ?",
+                (cutoff,),
+            ).fetchall()
+        return [r["title"] for r in rows if r["title"]]
+
+    def get_last_upload_time(self) -> Optional[str]:
+        """Return ISO timestamp of the most recent upload, or None."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT uploaded_at FROM uploaded_shorts ORDER BY uploaded_at DESC LIMIT 1"
+            ).fetchone()
+        return row["uploaded_at"] if row else None
 
     # ── Persistence ───────────────────────────────────────────────────────
 

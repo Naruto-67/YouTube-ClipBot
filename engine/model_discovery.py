@@ -160,8 +160,12 @@ def _build_discovered_model_configs(
     Stable models get tier 1..N (highest priority). Preview/exp models
     get tier 5.. (after Groq, before last-resort pro).
     """
-    stable = [m for m in discovered if "exp" not in m and "preview" not in m][:max_stable]
-    preview = [m for m in discovered if "exp" in m or "preview" in m][:max_preview]
+    stable = [m for m in discovered
+              if "exp" not in m and "preview" not in m
+              and _score_gemini_model(m) > 0][:max_stable]
+    preview = [m for m in discovered
+               if ("exp" in m or "preview" in m)
+               and _score_gemini_model(m) > 0][:max_preview]
 
     configs: List[Dict] = []
 
