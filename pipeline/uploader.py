@@ -1,8 +1,11 @@
 # pipeline/uploader.py
 import os
+import random
+import re
 import traceback
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from engine.config_manager import config_manager
 from engine.database import db
@@ -14,6 +17,66 @@ TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 class AuthFatalError(Exception):
     """Raised when YouTube OAuth credentials are invalid/expired — halts the run."""
+
+
+# ── Anti-spam / policy guard ─────────────────────────────────────────────────
+
+def check_upload_allowed(title: str) -> Tuple[bool, str]:
+    """
+    Run all pre-upload safety checks. Returns (allowed, reason).
+
+    Checks:
+    1. Weekly upload cap — prevents algorithm spam flags
+    2. Minimum hours between uploads — avoids mechanical upload pattern detection
+    3. Title similarity — blocks near-duplicate shorts within recent history
+    """
+    cfg = config_manager.pipeline
+
+    # 1. Weekly cap
+    weekly_cap = cfg.get("max_clips_per_week", 30)
+    uploads_this_week = db.get_uploads_this_week_count()
+    if uploads_this_week >= weekly_cap:
+        return False, (f"Weekly upload cap reached ({uploads_this_week}/{weekly_cap}). "
+                       "Wait for next week's quota to reset.")
+
+    # 2. Minimum hours between uploads
+    min_hours = cfg.get("min_hours_between_uploads", 3)
+    last_upload = db.get_last_upload_time()
+    if last_upload:
+        try:
+            last_dt = datetime.fromisoformat(last_upload.replace("Z", "+00:00"))
+            elapsed_hours = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+            if elapsed_hours < min_hours:
+                wait_mins = int((min_hours - elapsed_hours) * 60)
+                return False, (f"Must wait {wait_mins}m more before next upload "
+                               f"(min gap: {min_hours}h between uploads).")
+        except Exception:
+            pass
+
+    # 3. Title similarity check
+    max_similarity = cfg.get("max_title_similarity", 0.80)
+    recent_titles = db.get_recent_upload_titles(days=7)
+    for past_title in recent_titles:
+        similarity = _title_similarity(title, past_title)
+        if similarity >= max_similarity:
+            return False, (f"Title too similar to recent upload "
+                           f"(similarity {similarity:.0%}): '{past_title[:50]}'")
+
+    return True, "ok"
+
+
+def _title_similarity(a: str, b: str) -> float:
+    """Simple word-overlap similarity ratio between two titles."""
+    a_words = set(re.sub(r"[^a-z0-9 ]", "", a.lower()).split())
+    b_words = set(re.sub(r"[^a-z0-9 ]", "", b.lower()).split())
+    # Remove Shorts-specific words that are always present
+    stopwords = {"shorts", "short", "best", "moment", "moments", "the", "a", "of"}
+    a_words -= stopwords
+    b_words -= stopwords
+    if not a_words or not b_words:
+        return 0.0
+    overlap = len(a_words & b_words)
+    return overlap / max(len(a_words), len(b_words))
 
 
 def upload_short(
@@ -52,6 +115,13 @@ def upload_short(
                              creator_name, scheduled_at)
         return dummy_id
 
+    # ── Pre-upload spam/policy guard ─────────────────────────────────────
+    allowed, guard_reason = check_upload_allowed(seo.get("title", ""))
+    if not allowed:
+        print(f"🛑 Upload blocked by safety guard: {guard_reason}")
+        notifier.send_warning("Upload Blocked — Safety Guard", guard_reason)
+        return None
+
     # Check quota before attempting (upload costs 1600 units)
     can, reason = quota_manager.can_use_youtube(units=1600)
     if not can:
@@ -59,10 +129,13 @@ def upload_short(
         notifier.send_warning("Upload Skipped — Quota", reason)
         return None
 
-    # Resolve per-channel category ID (defaults to People & Blogs "22")
+    # Category ID: prefer seo dict value (set by seo_generator per clip_type),
+    # fall back to channel config default.
     try:
         upload_channel_cfg = config_manager.get_upload_channel()
-        category_id = str(upload_channel_cfg.get("category_id", "22"))
+        category_id = str(seo.get("category_id") or
+                          upload_channel_cfg.get("category_id", "22"))
+
     except Exception:
         category_id = "22"
 

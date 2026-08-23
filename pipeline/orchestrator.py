@@ -27,6 +27,9 @@ from pipeline import seo_generator
 from pipeline import transcriber
 from pipeline import uploader
 from pipeline import voiceover
+from pipeline import video_guardian
+from pipeline import trend_researcher
+from pipeline import channel_scorer
 
 ROOT = Path(__file__).parent.parent
 TEMP_DIR = ROOT / "temp"
@@ -43,6 +46,7 @@ class Orchestrator:
             "bank_count_start": 0,
             "bank_count_end": 0,
         }
+        self._trending_context = None  # set during run(), shared across pipeline
 
     # ── Entry point ───────────────────────────────────────────────────────
 
@@ -80,26 +84,42 @@ class Orchestrator:
                   f"Publish windows (UTC): {publish_times}")
 
             cfg = config_manager.pipeline
-            max_uploads = cfg.get("max_clips_per_day", 3)
-            bank_threshold = cfg.get("clip_bank_low_threshold", 3)
+            max_uploads = cfg.get("max_clips_per_day", 6)
+            bank_threshold = cfg.get("clip_bank_low_threshold", 12)
 
-            # ── Step 1: Manual queue ──────────────────────────────────────
+            # ── Step 0: Video Guardian ─────────────────────────────────────
+            # Check all recent uploads for removals/rejections BEFORE doing
+            # anything else. Catches policy issues from previous run.
+            if not TEST_MODE and cfg.get("run_video_guardian", True):
+                guardian_report = video_guardian.monitor_uploaded_videos(youtube_service)
+                self.stats["guardian_removed"] = guardian_report.deleted
+                self.stats["guardian_rejected"] = guardian_report.rejected
+            else:
+                print("ℹ️  Video guardian skipped (TEST_MODE or disabled)")
+
+            # ── Step 1: Trend Research ─────────────────────────────────────
+            # Fetch trending context once per run and reuse across all SEO calls.
+            self._trending_context = trend_researcher.get_trending_context(
+                youtube_service if not TEST_MODE else None
+            )
+
+            # ── Step 2: Manual queue ──────────────────────────────────────
             fetcher.sync_manual_queue()
             self._process_manual_queue(youtube_service)
 
-            # ── Step 2: Check bank ────────────────────────────────────────
+            # ── Step 3: Check bank ────────────────────────────────────────
             bank_count = db.get_bank_count("pending")
             self.stats["bank_count_start"] = bank_count
             print(f"🏦 Clip bank: {bank_count} pending clips")
 
-            # ── Step 3: Discovery if bank is low ─────────────────────────
+            # ── Step 4: Discovery if bank is low ─────────────────────────
             if bank_count < bank_threshold:
                 print(f"📉 Bank below threshold ({bank_threshold}) — running discovery")
                 self._run_discovery(youtube_service, bank_threshold)
             else:
                 print(f"✅ Bank has enough clips — skipping discovery today")
 
-            # ── Step 4: Check bank again after discovery ──────────────────
+            # ── Step 5: Check bank again after discovery ──────────────────
             bank_count = db.get_bank_count("pending")
             if bank_count == 0:
                 notifier.send_warning(
@@ -110,7 +130,7 @@ class Orchestrator:
                 )
                 print("⚠️  Clip bank empty — nothing to upload today.")
             else:
-                # ── Step 5: Upload from bank ──────────────────────────────
+                # ── Step 6: Upload from bank ──────────────────────────────
                 self._upload_from_bank(
                     max_clips=max_uploads,
                     youtube_service=youtube_service,
@@ -157,7 +177,14 @@ class Orchestrator:
 
     def _run_discovery(self, youtube_service, bank_threshold: int):
         creators = config_manager.get_active_source_creators()
-        print(f"🔍 Discovering from: {[c['name'] for c in creators]}")
+
+        # Dynamically score creators and allocate the discovery video budget
+        discovery_budget = config_manager.pipeline.get("discovery_video_budget", 8)
+        creators = channel_scorer.score_and_allocate(creators,
+                                                     total_budget=discovery_budget)
+        print(f"🔍 Discovering from: "
+              + ", ".join(f"{c['name']}({c['max_videos_per_run']}v)"
+                         for c in creators))
 
         new_clips = 0
         for creator in creators:
@@ -170,7 +197,7 @@ class Orchestrator:
             print(f"📦 Still low after normal discovery — extending to backlog window")
             notifier.send_info(
                 "Backlog Mode Active",
-                "Bank is low — pulling from extended backlog (90 days). "
+                "Bank is low — pulling from extended backlog. "
                 "Consider adding more source creators."
             )
             for creator in creators:
@@ -439,7 +466,10 @@ class Orchestrator:
 
             fake_transcript = {"words": transcript_words,
                                 "duration": clip["end_seconds"]}
-            seo = seo_generator.generate_seo(clip, fake_transcript, creator_name)
+            seo = seo_generator.generate_seo(
+                clip, fake_transcript, creator_name,
+                trending_context=self._trending_context,
+            )
 
             transcript_excerpt = " ".join(w["word"] for w in transcript_words[:80])
             qc_result = quality_checker.check_metadata(seo, transcript_excerpt)

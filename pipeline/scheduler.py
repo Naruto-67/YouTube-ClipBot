@@ -97,12 +97,19 @@ def _analytics_windows(youtube_service) -> Optional[List[str]]:
 
 def pick_next_slot(publish_times_utc: List[str]) -> str:
     """
-    Pick the next available publish slot from the time windows,
-    ensuring no two uploads are scheduled within 3 hours of each other
-    and respecting the upload_buffer_hours setting.
+    Pick the next available publish slot from the time windows.
+
+    Ensures:
+    - Minimum gap between uploads (min_hours_between_uploads from pipeline.yaml)
+    - No conflict with already-booked times
+    - Random jitter applied (±upload_jitter_minutes) to prevent mechanical pattern detection
+
+    Returns ISO8601 UTC string.
     """
     cfg = config_manager.pipeline
-    buffer_hours = cfg.get("upload_buffer_hours", 2)
+    buffer_hours = cfg.get("min_hours_between_uploads",
+                           cfg.get("upload_buffer_hours", 3))
+    jitter_minutes = cfg.get("upload_jitter_minutes", 15)
 
     now_utc = datetime.now(timezone.utc)
     min_publish_time = now_utc + timedelta(hours=buffer_hours)
@@ -118,9 +125,9 @@ def pick_next_slot(publish_times_utc: List[str]) -> str:
     today = now_utc.date()
     tomorrow = today + timedelta(days=1)
 
-    # Try slots for today and tomorrow
+    import random
     for day in [today, tomorrow]:
-        for time_str in publish_times_utc:
+        for time_str in sorted(publish_times_utc):
             h, m = map(int, time_str.split(":"))
             slot = datetime(day.year, day.month, day.day, h, m,
                            tzinfo=timezone.utc)
@@ -129,20 +136,30 @@ def pick_next_slot(publish_times_utc: List[str]) -> str:
             if slot < min_publish_time:
                 continue
 
-            # Slot must not conflict with already-booked times (3hr gap)
+            # Slot must not conflict with already-booked times
             conflict = any(
-                abs((slot - booked_t).total_seconds()) < 3 * 3600
+                abs((slot - booked_t).total_seconds()) < buffer_hours * 3600
                 for booked_t in booked
             )
             if conflict:
                 continue
 
-            print(f"📅 Scheduled publish slot: {slot.isoformat()}")
-            return slot.isoformat()
+            # Apply jitter: random ±jitter_minutes to break mechanical pattern
+            jitter_secs = random.randint(-jitter_minutes * 60, jitter_minutes * 60)
+            slot_jittered = slot + timedelta(seconds=jitter_secs)
+            # Don't jitter into the past
+            if slot_jittered < now_utc + timedelta(minutes=5):
+                slot_jittered = slot
 
-    # If all preferred slots are taken, add 4 hours from now
-    fallback = (now_utc + timedelta(hours=buffer_hours + 1)).replace(
-        minute=0, second=0, microsecond=0
+            print(f"📅 Scheduled publish slot: {slot_jittered.isoformat()} "
+                  f"(jitter: {jitter_secs // 60:+d}m)")
+            return slot_jittered.isoformat()
+
+    # Fallback: buffer_hours + 1 from now, rounded to nearest 15 minutes
+    fallback_raw = now_utc + timedelta(hours=buffer_hours + 1)
+    jitter_secs = random.randint(-jitter_minutes * 60, jitter_minutes * 60)
+    fallback = (fallback_raw + timedelta(seconds=jitter_secs)).replace(
+        second=0, microsecond=0
     )
     print(f"📅 Fallback publish slot: {fallback.isoformat()}")
     return fallback.isoformat()
