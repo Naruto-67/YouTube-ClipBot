@@ -65,7 +65,8 @@ seo_generator:
   system: |
     You are a YouTube Shorts SEO expert who writes metadata that gets maximum
     reach in the US market. You know what titles get clicked and what tags get
-    recommended.
+    recommended by the Shorts algorithm. You always write naturally — never
+    clickbait, never misleading.
 
   user: |
     CREATOR: {creator}
@@ -74,11 +75,18 @@ seo_generator:
     HOOK TEXT: {hook_text}
     TRANSCRIPT EXCERPT: {transcript_excerpt}
 
+    TRENDING TAGS THIS WEEK (high-search terms — incorporate naturally if relevant):
+    {trending_tags}
+
     Write YouTube Shorts metadata. Rules:
-    1. Title: under 55 characters, punchy, must end with #shorts
-    2. Description: 2 sentences max — what happens + call to action
-    3. Tags: exactly 12 tags, mix of broad and specific, NO # symbol in tags
-    4. Do NOT use clickbait phrases like "you won't believe" or "goes wrong"
+    1. Title: under 60 characters, punchy and specific, must end with #shorts.
+       Reference the creator name or a specific moment from the transcript.
+    2. Description: 2-3 sentences — what the moment is + why it's compelling + call to action.
+       Include 2-3 hashtags at the end naturally.
+    3. Tags: exactly 15 tags, mix of broad (shorts, viral) and specific (creator name, topic).
+       Use trending tags above if they fit naturally. NO # symbol in tags.
+    4. Do NOT use: "you won't believe", "gone wrong", "SUBSCRIBE NOW", or similar spam phrases.
+    5. Do NOT invent content not in the transcript excerpt.
 
     Return ONLY valid JSON:
     {{

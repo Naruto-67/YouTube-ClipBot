@@ -11,7 +11,7 @@
 # changes. Set to false to rely purely on the static list below.
 auto_discovery:
   enabled: true
-  max_stable_models: 4
+  max_stable_models: 6
   max_preview_models: 2
   discover_groq: true      # Also discover Groq text models dynamically
 
@@ -28,6 +28,8 @@ youtube:
     videos_update: 50
     playlist_items_insert: 50
     reports_query: 1              # YouTube Analytics
+    videos_delete: 50             # Guardian: remove policy-violating shorts
+    guardian_check: 1             # videos.list health check (per 50-video batch)
 
 gemini:
   reset_timezone: "US/Pacific"   # Gemini quota resets at PT midnight

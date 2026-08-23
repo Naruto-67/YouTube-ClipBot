@@ -1,23 +1,19 @@
 # config/pipeline.yaml
-# ─────────────────────────────────────────────────────────────
-# All pipeline behavior is controlled here.
-# Changing any value takes effect on the next run.
-# ─────────────────────────────────────────────────────────────
+# All pipeline behavior is controlled here. Changes take effect on the next run.
 
-# ── Volume ──────────────────────────────────────────────────
-max_clips_per_day: 3              # Max shorts uploaded per day (from bank)
-max_source_videos_per_creator: 2  # Videos to discover per creator per run
+# Volume
+max_clips_per_day: 6
+max_clips_per_week: 30
+max_source_videos_per_creator: 3
 
-# ── Source video constraints ────────────────────────────────
-max_video_age_days: 30            # Normal discovery window
-backlog_max_age_days: 90          # Extended window when bank is low
-max_video_length_minutes: 90      # Raised — chunked transcription handles long videos
-source_video_quality: "720"
+# Source video constraints
+max_video_age_days: 14
+backlog_max_age_days: 60
+max_video_length_minutes: 180
 min_disk_free_gb: 3
 
-# ── Clip bank ───────────────────────────────────────────────
-clip_bank_low_threshold: 3        # Trigger discovery when bank has fewer than this
-# Dynamic clip count based on video duration:
+# Clip bank
+clip_bank_low_threshold: 12
 clips_per_video_tiers:
   - max_minutes: 10
     clips: 2
@@ -25,59 +21,53 @@ clips_per_video_tiers:
     clips: 4
   - max_minutes: 35
     clips: 6
+  - max_minutes: 60
+    clips: 8
   - max_minutes: 999
-    clips: 10
+    clips: 12
 
-# ── Manual queue ────────────────────────────────────────────
+# Manual queue
 manual_queue_file: "config/manual_queue.yaml"
 
-# ── Transcription ────────────────────────────────────────────
-# Primary: youtube-transcript-api (instant, no download needed)
-# Fallback: yt-dlp full download + faster-whisper (used when captions unavailable)
-prefer_captions: true             # Try YouTube caption API first
-chunk_duration_minutes: 15        # Only used for Whisper fallback
-chunk_overlap_minutes: 2          # Only used for Whisper fallback
+# Transcription waterfall: YouTube captions -> Groq Whisper -> local faster-whisper
+prefer_captions: true
+chunk_duration_minutes: 15
+chunk_overlap_minutes: 2
+groq_whisper_model: "whisper-large-v3"
 
-# ── Segment download (used at render time) ───────────────────
-# Instead of re-downloading the full video to render a clip,
-# only download the specific segment + a buffer before the clip
-# for natural context/lead-in.
-transcript_buffer_seconds: 6      # Seconds of lead-in before clip start
+# Segment download
+transcript_buffer_seconds: 6
 
-# ── Clip selection ──────────────────────────────────────────
+# Clip selection
 min_clip_seconds: 30
 max_clip_seconds: 60
 ai_confidence_threshold: 0.60
 ai_confidence_floor: 0.30
-# After this many consecutive failures a source video is skipped permanently
-# (circuit breaker) instead of retried every single run.
 circuit_breaker_failures: 3
 
-# ── Caption style ───────────────────────────────────────────
+# Caption style
 caption_words_per_line: 4
 caption_font: "Anton-Regular"
 caption_font_size: 85
 caption_text_color: "&H00FFFFFF"
 caption_highlight_color: "&H0000FFFF"
 caption_outline_color: "&H00000000"
-caption_glow: true                 # Two-layer neon glow captions
-caption_glow_color: "&H0000D700"   # Neon glow halo color (ASS &HAABBGGRR)
-caption_glow_size: 28              # Outline thickness of the glow layer (px)
-caption_glow_blur: 15              # Gaussian blur strength on the glow layer
+caption_glow: true
+caption_glow_color: "&H0000D700"
+caption_glow_size: 28
+caption_glow_blur: 15
 
-# ── Content ID mitigation ─────────────────────────────────────
-# Raise the pitch of the source audio (semitones, +/-) so the clip fingerprint
-# differs from the original and is less likely to trigger Content ID. 0 disables.
-content_id_pitch_shift: 0
+# Content ID mitigation - pitch shift source audio 2 semitones
+# Inaudible to humans but defeats most Content ID fingerprint matching
+content_id_pitch_shift: 2
 
-# ── Background music ──────────────────────────────────────────
-# Drops royalty-free MP3s from assets/music/ under the source audio.
-add_background_music: false
-music_volume: 0.06                 # Music amplitude relative to source
-music_fade_in: 0.8                 # Fade music in over N seconds
-music_fade_out: 1.2                # Fade music out over N seconds
+# Background music - drop royalty-free MP3s into assets/music/
+add_background_music: true
+music_volume: 0.05
+music_fade_in: 0.8
+music_fade_out: 1.2
 
-# ── Video rendering ─────────────────────────────────────────
+# Video rendering
 output_width: 1080
 output_height: 1920
 output_fps: 30
@@ -86,31 +76,47 @@ original_audio_db: -20
 apply_vignette: true
 vignette_angle: 0.785
 
-# ── Voiceover hook ──────────────────────────────────────────
-add_voiceover_hook: false    # Disabled: Bing TTS WebSocket blocked on Azure IPs
+# Voiceover hook - first-3-second spoken hook dramatically increases watch time
+add_voiceover_hook: true
 hook_max_words: 10
 hook_voice: "en-US-GuyNeural"
-# TTS provider: auto (edge-tts → Piper fallback), edge, or piper
-hook_tts_provider: "auto"
-# Piper TTS voice model name (used only when provider is piper/auto-fallback)
+hook_tts_provider: "piper"
 hook_piper_model: "en_US-amy-medium"
-# Path to the piper binary (leave as "piper" for a pip-installed CLI)
 piper_bin: "piper"
 
-# ── Scheduling ──────────────────────────────────────────────
-upload_buffer_hours: 2
+# Upload safety - anti-spam and policy compliance
+min_hours_between_uploads: 3
+upload_jitter_minutes: 15
+min_days_before_reclip_source: 7
+max_title_similarity: 0.80
+
+# Scheduling
+upload_buffer_hours: 3
 analytics_subscriber_threshold: 1000
 default_upload_windows_utc:
+  - "14:00"
   - "19:00"
   - "22:00"
   - "01:00"
 
-# ── Performance feedback loop ─────────────────────────────────
-# When enabled, weekly maintenance pulls Analytics and learns which
-# clip_types perform best (used to seed future clip selection).
-performance_feedback: false
+# Video Guardian - post-upload health monitoring
+run_video_guardian: true
+video_health_check_hours: 48
+video_guardian_lookback_days: 30
+auto_remove_on_rejection: true
+auto_remove_on_strike: true
 
-# ── Storage cleanup ─────────────────────────────────────────
+# Trend research
+run_trend_research: true
+trend_research_region: "US"
+
+# Channel scoring - dynamic video budget allocation
+discovery_video_budget: 8
+
+# Performance feedback loop
+performance_feedback: true
+
+# Storage cleanup
 prune_processed_videos_days: 90
 prune_quota_log_days: 30
 prune_ai_reliability_days: 14
@@ -119,6 +125,6 @@ prune_analytics_days: 60
 prune_clip_bank_days: 30
 error_log_max_mb: 1.0
 
-# ── Retry behavior ──────────────────────────────────────────
+# Retry behavior
 max_render_retries: 3
 max_upload_retries: 3

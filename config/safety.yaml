@@ -1,0 +1,60 @@
+﻿# config/safety.yaml
+# Centralized safety rules - edit to update rules WITHOUT code changes
+
+demonetizing_words:
+  - death
+  - kill
+  - murder
+  - suicide
+  - shooting
+  - bomb
+  - weapon
+  - terrorist
+  - drug
+  - cocaine
+  - weed
+  - porn
+  - sex
+  - nsfw
+  - nude
+  - hate
+  - slur
+  - racist
+
+banned_clickbait_phrases:
+  - "you won't believe"
+  - "gone wrong"
+  - "must see"
+  - "shocking truth"
+
+sensitive_clip_types:
+  shocking:
+    title_prefix_avoid: ["GRAPHIC", "DISTURBING"]
+    extra_review: true
+  emotional:
+    extra_review: false
+
+clip_type_category_ids:
+  funny:      "24"
+  shocking:   "24"
+  emotional:  "22"
+  challenge:  "24"
+  reaction:   "24"
+  satisfying: "22"
+  default:    "22"
+
+fallback_tags:
+  - shorts
+  - viral
+  - funny
+  - trending
+  - bestmoments
+  - youtube
+  - entertainment
+  - satisfying
+  - reaction
+  - moments
+  - highlights
+  - clips
+  - foryou
+  - fyp

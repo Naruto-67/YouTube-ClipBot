@@ -1,32 +1,79 @@
 # config/channels.yaml
-# ─────────────────────────────────────────────────────────────
-# YOUR UPLOAD CHANNEL (the channel you own and upload to)
-# ─────────────────────────────────────────────────────────────
+# YOUR UPLOAD CHANNEL
 upload_channel:
   credentials_env: "YOUTUBE_CREDENTIALS"
   discord_webhook_env: "DISCORD_WEBHOOK"
-  # YouTube video category ID applied to all uploads.
-  # 22 = People & Blogs (default for clip channels). See:
-  # https://developers.google.com/youtube/v3/docs/videos#snippet.categoryId
   category_id: "22"
 
-# ─────────────────────────────────────────────────────────────
-# SOURCE CREATORS (channels you clip from)
-# Add or remove creators freely. Set active: false to pause one.
-# ─────────────────────────────────────────────────────────────
+# SOURCE CREATORS
+# content_id_risk: low | medium | high
+# channel_scorer.py dynamically adjusts max_videos_per_run - value here is ceiling only
 source_creators:
-  - name: "MrBeast"
-    channel_id: "UCX6OQ3DkcsbYNE6H8uQQuVA"
+
+  # TIER 1 - Podcast / Interview (longest videos, most clips, captions always present)
+  - name: "Lex Fridman"
+    channel_id: "UC55neJbJ542wJ26aK_o79nQ"
+    niche: "podcast_interview"
+    content_id_risk: "low"
+    active: true
+    max_videos_per_run: 3
+
+  - name: "Theo Von"
+    channel_id: "UCiEKV_MOhwZ7OEcgFyLKilw"
+    niche: "comedy_podcast"
+    content_id_risk: "low"
     active: true
     max_videos_per_run: 2
 
-  - name: "Mark Rober"
-    channel_id: "UCY1kMZp36IQSyNx_9h4mpCg"
+  - name: "Valuetainment"
+    channel_id: "UCI_nS9tD1T7G1l1FkQ4n_Yw"
+    niche: "business_interview"
+    content_id_risk: "low"
+    active: true
+    max_videos_per_run: 2
+
+  # TIER 2 - Gaming / Variety
+  - name: "Ludwig"
+    channel_id: "UCrPseYLGpNygVi34QpGNqpA"
+    niche: "gaming_variety"
+    content_id_risk: "medium"
+    active: true
+    max_videos_per_run: 2
+
+  - name: "penguinz0"
+    channel_id: "UCq6VHGfsYHQ8iE47-xvR2-g"
+    niche: "commentary_gaming"
+    content_id_risk: "medium"
+    active: true
+    max_videos_per_run: 2
+
+  # TIER 3 - Stunts / Challenge
+  - name: "Airrack"
+    channel_id: "UC687_5R3-524yvN5zWwP2eA"
+    niche: "stunts_challenge"
+    content_id_risk: "low"
+    active: true
+    max_videos_per_run: 2
+
+  # TIER 4 - Science / Tech (evergreen SEO)
+  - name: "Veritasium"
+    channel_id: "UCHnyfMqiRRG1u-2MsSQLbXA"
+    niche: "science_tech"
+    content_id_risk: "low"
     active: true
     max_videos_per_run: 1
 
-  # ── Add more creators below ──────────────────────────────
-  # - name: "KSI"
-  #   channel_id: "UCVtFOytbRpEvzLjvqGG5gxQ"
+  # DISABLED - uncomment to enable
+  # - name: "Andrew Huberman"
+  #   channel_id: "UC2D2CMBhJ-h8jR29Jk8P2uQ"
+  #   niche: "health_science"
+  #   content_id_risk: "low"
+  #   active: false
+  #   max_videos_per_run: 1
+
+  # - name: "Ryan Trahan"
+  #   channel_id: "UCnmGIkw-KdI0W5siakKPKog"
+  #   niche: "challenge_vlog"
+  #   content_id_risk: "low"
   #   active: false
   #   max_videos_per_run: 1
