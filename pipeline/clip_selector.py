@@ -130,7 +130,7 @@ def _snap_to_sentence_boundaries(clip: Dict, words: List[Dict]) -> Optional[Dict
     #   - the previous word ends with sentence-ending punctuation
     snapped_start = None
     for i, w in enumerate(words):
-        if w["start"] < start - 1.0:
+        if w["start"] < start:
             continue
         if w["start"] > end:
             break
@@ -150,7 +150,7 @@ def _snap_to_sentence_boundaries(clip: Dict, words: List[Dict]) -> Optional[Dict
     # Find the last word at/before end that ends a sentence.
     snapped_end = None
     for w in reversed(words):
-        if w["end"] > end + 1.0:
+        if w["end"] > end:
             continue
         if w["end"] < start:
             break
