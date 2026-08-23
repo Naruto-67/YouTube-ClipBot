@@ -19,7 +19,7 @@ opencv-python-headless>=4.10.0.84     # Face detection for 9:16 smart crop
 
 # Config + utilities
 PyYAML>=6.0.2
-pytz>=2026.1
+pytz>=2026.3.post1
 requests>=2.34.0
 pydantic>=2.9.0
 
