@@ -1,19 +1,28 @@
-google-genai>=1.56.0
-groq==1.6.0
-google-api-python-client==2.136.0
-google-auth-httplib2==0.4.1
-google-auth-oauthlib==1.2.1
-faster-whisper==1.1.1
-yt-dlp[default]
-youtube-transcript-api==1.2.4
-edge-tts==7.2.8
-# Piper TTS — optional local fallback for voiceover hooks when edge-tts is
-# blocked (e.g. GitHub Actions Azure IPs). Requires the `piper` CLI + a voice
-# model; pipeline falls back gracefully if it isn't installed.
-piper-tts>=1.2.0
-opencv-python-headless==5.0.0.93
-PyYAML==6.0.2
-pytz==2024.2
-requests==2.32.3
-pydantic==2.9.2
-numpy==1.26.4
+# Core Google / AI providers
+google-genai>=1.56.0                  # Gemini API -- auto-discovers newest free models
+groq>=1.6.0                           # Groq cloud inference (LLaMA, Whisper)
+google-api-python-client>=2.199.0     # YouTube Data API v3 + YouTube Analytics
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.1
+
+# Transcription
+faster-whisper>=1.1.1                 # Local Whisper (CPU int8) -- fallback transcriber
+# NOTE: Piper TTS for voiceover hooks is optional -- install piper-tts separately
+# if needed. Its numpy pin conflicts with faster-whisper, so it is excluded here.
+# The pipeline falls back gracefully to edge-tts if piper is absent.
+
+# Video acquisition + processing
+yt-dlp[default]                       # Never pin -- uses its own auto-update mechanism
+youtube-transcript-api>=1.2.4         # Free YouTube captions (zero quota units)
+edge-tts>=7.2.8                       # Azure neural TTS for voiceover hooks (free)
+opencv-python-headless>=4.10.0.84     # Face detection for 9:16 smart crop
+
+# Config + utilities
+PyYAML>=6.0.2
+pytz>=2026.1
+requests>=2.34.0
+pydantic>=2.9.0
+
+# numpy: intentionally unpinned -- faster-whisper owns the compatible range.
+# Pinning causes ResolutionImpossible when pip resolves the full dependency graph.
+numpy>=1.24.0
