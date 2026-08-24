@@ -37,17 +37,16 @@ def get_transcript_via_api(video_id: str,
       - No large video file download → Azure IPs are not blocked for this
     """
     try:
+        import os
+        import requests
+        import http.cookiejar
         from youtube_transcript_api import (
             YouTubeTranscriptApi,
             TranscriptsDisabled,
             NoTranscriptFound,
         )
 
-        # Inject cookies to bypass YouTube IP blocks
-        import os
-        import requests
-        import http.cookiejar
-
+        # Inject cookies to bypass YouTube datacenter IP blocks
         session = requests.Session()
         cookie_path = os.environ.get("YT_COOKIES_PATH", "/tmp/yt-cookies.txt")
         if os.path.exists(cookie_path):
@@ -55,10 +54,11 @@ def get_transcript_via_api(video_id: str,
             try:
                 cj.load(ignore_discard=True, ignore_expires=True)
                 session.cookies = cj
+                print(f"   Using cookies from: {cookie_path}")
             except Exception as e:
                 print(f"⚠️  Could not load cookies for Caption API: {e}")
 
-        # Fetch available transcripts
+        # Fetch available transcripts (youtube-transcript-api v1.x: instantiate, use .list())
         transcript_list = YouTubeTranscriptApi(http_client=session).list(video_id)
 
         # Log all available transcripts for debugging
