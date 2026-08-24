@@ -3,7 +3,7 @@ google-genai>=1.56.0                  # Gemini API -- auto-discovers newest free
 groq>=1.6.0                           # Groq cloud inference (LLaMA, Whisper)
 google-api-python-client>=2.199.0     # YouTube Data API v3 + YouTube Analytics
 google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.1
+google-auth-oauthlib>=1.4.0
 
 # Transcription
 faster-whisper>=1.1.1                 # Local Whisper (CPU int8) -- fallback transcriber
