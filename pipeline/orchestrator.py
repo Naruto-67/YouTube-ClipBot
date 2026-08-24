@@ -244,7 +244,36 @@ class Orchestrator:
             prefer_captions = cfg.get("prefer_captions", True)
             transcript_result = None
 
-            if prefer_captions:
+            # ── TEST_MODE: use synthetic transcript, skip all downloads ──
+            if TEST_MODE:
+                print("🧪 [TEST MODE] Using synthetic transcript — skipping download/Whisper")
+                # Build a realistic word list covering the claimed duration
+                words = []
+                t = 0.0
+                sentences = [
+                    "This is an amazing moment that you need to see.",
+                    "Nobody expected what happened next in this incredible video.",
+                    "The result was absolutely shocking and nobody could believe it.",
+                    "This changes everything we thought we knew about this topic.",
+                    "You will not believe how this turned out in the end.",
+                ]
+                while t < duration_sec - 5:
+                    for sentence in sentences:
+                        for word in sentence.split():
+                            words.append({"word": word, "start": round(t, 2),
+                                          "end": round(t + 0.4, 2), "confidence": 1.0})
+                            t += 0.45
+                        t += 0.3  # brief pause between sentences
+                        if t >= duration_sec - 5:
+                            break
+                transcript_result = {
+                    "words": words,
+                    "text": " ".join(w["word"] for w in words),
+                    "language": "en",
+                    "duration": duration_sec,
+                }
+
+            if transcript_result is None and prefer_captions:
                 print(f"📝 Trying YouTube caption API...")
                 transcript_result = transcriber.get_transcript_via_api(
                     vid_id, duration_sec
