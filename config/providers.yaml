@@ -34,21 +34,44 @@ youtube:
 gemini:
   reset_timezone: "US/Pacific"   # Gemini quota resets at PT midnight
   models:
+    # ── Current generation (Aug 2026) ────────────────────────
+    - name: "gemini-3.7-flash"
+      tier: 1                    # Newest flash — highest priority
+      rpm: 10
+      rpd: 250
+      tpm: 250000
+      stable: true
+
+    - name: "gemini-3.6-flash"
+      tier: 2
+      rpm: 10
+      rpd: 250
+      tpm: 250000
+      stable: true
+
+    - name: "gemini-3.5-flash-lite"
+      tier: 3                    # Fastest/cheapest, high RPD
+      rpm: 15
+      rpd: 1000
+      tpm: 250000
+      stable: true
+
+    # ── Previous generation fallbacks ────────────────────────
     - name: "gemini-2.5-flash"
-      tier: 1                    # Lower = higher priority
+      tier: 4
       rpm: 10
       rpd: 250
       tpm: 250000
       stable: true
 
     - name: "gemini-2.5-flash-lite"
-      tier: 2
+      tier: 5
       rpm: 15
       rpd: 1000
       tpm: 250000
       stable: true
 
-    # ── Last resort only ────────────────────────────────────
+    # ── Last resort only ─────────────────────────────────────
     - name: "gemini-2.5-pro"
       tier: 10
       rpm: 5
