@@ -40,7 +40,7 @@ class LLMClient:
     # ── Raw API calls ─────────────────────────────────────────────────────
 
     def _call_gemini(self, model_name: str, prompt: str, system: str,
-                     max_tokens: int = 2000) -> str:
+                     max_tokens: int = 4096) -> str:
         from google.genai import types
         response = self._gemini().models.generate_content(
             model=model_name,
