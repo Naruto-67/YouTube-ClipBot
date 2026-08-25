@@ -616,8 +616,8 @@ class Database:
                    AND created_at < ?""",
                 ((now - timedelta(days=max(3, clip_bank_days // 2))).isoformat(),)
             ).rowcount
-            conn.execute("VACUUM")
             conn.commit()
+            conn.execute("VACUUM")
         return total
 
     def get_db_size_kb(self) -> int:
