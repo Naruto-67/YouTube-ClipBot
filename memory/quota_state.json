@@ -1,7 +1,7 @@
 {
   "youtube:data_api:units": {
-    "date": "2026-03-20",
-    "value": 4804
+    "date": "2026-08-25",
+    "value": 9630
   },
   "gemini:gemini-2.5-flash:rpd": {
     "date": "2026-03-20",
@@ -12,11 +12,19 @@
     "value": 8
   },
   "gemini:gemini-3.7-flash:rpd": {
-    "date": "2026-08-24",
+    "date": "2026-08-25",
     "value": 250
   },
   "gemini:gemini-3.6-flash:rpd": {
-    "date": "2026-08-24",
-    "value": 4
+    "date": "2026-08-25",
+    "value": 250
+  },
+  "gemini:gemini-3.5-flash:rpd": {
+    "date": "2026-08-25",
+    "value": 250
+  },
+  "gemini:gemini-3.5-flash-lite:rpd": {
+    "date": "2026-08-25",
+    "value": 13
   }
 }
