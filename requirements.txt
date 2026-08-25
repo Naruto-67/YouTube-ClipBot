@@ -1,5 +1,5 @@
 # Core Google / AI providers
-google-genai>=1.56.0                  # Gemini API -- auto-discovers newest free models
+google-genai>=2.19.0                  # Gemini API -- auto-discovers newest free models
 groq>=1.6.0                           # Groq cloud inference (LLaMA, Whisper)
 google-api-python-client>=2.199.0     # YouTube Data API v3 + YouTube Analytics
 google-auth-httplib2>=0.4.1
@@ -15,7 +15,7 @@ faster-whisper>=1.1.1                 # Local Whisper (CPU int8) -- fallback tra
 yt-dlp[default]                       # Never pin -- uses its own auto-update mechanism
 youtube-transcript-api>=1.2.4         # Free YouTube captions (zero quota units)
 edge-tts>=7.2.8                       # Azure neural TTS for voiceover hooks (free)
-opencv-python-headless>=4.10.0.84     # Face detection for 9:16 smart crop
+opencv-python-headless>=5.0.0.93     # Face detection for 9:16 smart crop
 
 # Config + utilities
 PyYAML>=6.0.2
