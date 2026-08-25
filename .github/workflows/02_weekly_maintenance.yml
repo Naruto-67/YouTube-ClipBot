@@ -39,15 +39,15 @@ jobs:
         run: |
           pip install --upgrade pip -q
           pip install \
-            google-api-python-client==2.136.0 \
-            google-auth-httplib2==0.2.0 \
-            google-auth-oauthlib==1.2.1 \
-            google-genai==1.16.0 \
-            groq==0.13.1 \
-            PyYAML==6.0.2 \
-            pytz==2024.2 \
-            requests==2.32.3 \
-            pydantic==2.9.2 -q
+            google-api-python-client>=2.199.0 \
+            google-auth-httplib2>=0.4.1 \
+            google-auth-oauthlib>=1.2.1 \
+            google-genai>=2.19.0 \
+            groq>=1.6.0 \
+            PyYAML>=6.0.2 \
+            pytz>=2026.1 \
+            requests>=2.34.0 \
+            pydantic>=2.9.0 -q
 
       - name: Run token health check
         env:
