@@ -10,5 +10,13 @@
   "gemini:gemini-2.5-flash-lite:rpd": {
     "date": "2026-03-15",
     "value": 8
+  },
+  "gemini:gemini-3.7-flash:rpd": {
+    "date": "2026-08-24",
+    "value": 250
+  },
+  "gemini:gemini-3.6-flash:rpd": {
+    "date": "2026-08-24",
+    "value": 1
   }
 }
