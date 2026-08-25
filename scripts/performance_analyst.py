@@ -42,7 +42,7 @@ def get_preferred_clip_types(top_n: int = 3) -> List[str]:
     return [c for c, _ in ranked[:top_n]]
 
 
-def run_performance_analysis(youtube_service) -> Optional[Dict]:
+def run_performance_analysis(youtube_service=None, creds=None) -> Optional[Dict]:
     """
     Pull recent uploads (last 7 days) and compute clip-type performance signals.
     Returns a small summary dict, or None on failure.
@@ -62,9 +62,12 @@ def run_performance_analysis(youtube_service) -> Optional[Dict]:
         return None
 
     try:
+        if creds is None:
+            from pipeline.fetcher import get_youtube_service
+            _, creds = get_youtube_service()
+
         from googleapiclient.discovery import build
-        analytics = build("youtubeAnalytics", "v2",
-                          credentials=youtube_service._http.credentials)
+        analytics = build("youtubeAnalytics", "v2", credentials=creds)
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=7)
         response = analytics.reports().query(
