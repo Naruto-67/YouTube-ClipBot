@@ -160,8 +160,6 @@ class LLMClient:
         Automatically falls back through the model chain on failure.
         Returns None if all attempts across all models fail.
         """
-        attempted_models = set()
-
         for attempt in range(max_retries + 1):
             model_info = quota_manager.get_best_available_model()
 
@@ -171,12 +169,6 @@ class LLMClient:
                 return None
 
             provider, model_name, _ = model_info
-
-            # Skip models we already failed on in this call
-            if model_name in attempted_models and attempt < max_retries:
-                time.sleep(2)
-                continue
-            attempted_models.add(model_name)
 
             # Wait for RPM if needed
             quota_manager.wait_for_rpm_if_needed(provider, model_name)
@@ -212,7 +204,8 @@ class LLMClient:
                 err_str = str(e)
                 is_rate_limit = any(x in err_str.lower() for x in
                                     ["429", "rate limit", "resource exhausted",
-                                     "quota", "too many requests"])
+                                     "quota", "too many requests", "503", 
+                                     "unavailable", "high demand", "overloaded"])
                 print(f"⚠️  {model_name} error: {err_str[:100]}")
                 db.log_ai_call(model_name, call_type, False)
 
@@ -244,8 +237,6 @@ class LLMClient:
         this is for prose outputs (audits, analysis, summaries). Same fallback
         chain + quota safety. Returns None if all attempts fail.
         """
-        attempted_models = set()
-
         for attempt in range(max_retries + 1):
             model_info = quota_manager.get_best_available_model()
 
@@ -255,11 +246,6 @@ class LLMClient:
                 return None
 
             provider, model_name, _ = model_info
-
-            if model_name in attempted_models and attempt < max_retries:
-                time.sleep(2)
-                continue
-            attempted_models.add(model_name)
 
             quota_manager.wait_for_rpm_if_needed(provider, model_name)
 
@@ -281,7 +267,8 @@ class LLMClient:
                 err_str = str(e)
                 is_rate_limit = any(x in err_str.lower() for x in
                                     ["429", "rate limit", "resource exhausted",
-                                     "quota", "too many requests"])
+                                     "quota", "too many requests", "503", 
+                                     "unavailable", "high demand", "overloaded"])
                 print(f"⚠️  {model_name} error: {err_str[:100]}")
                 db.log_ai_call(model_name, call_type, False)
 
