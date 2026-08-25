@@ -46,7 +46,8 @@ jobs:
             libopencv-dev \
             python3-opencv
           ffmpeg -version | head -1
-          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          # Install Node.js 24 (LTS) - Node 20 is deprecated on Actions runners
+          curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
           sudo apt-get install -y nodejs
           node --version
 
@@ -107,13 +108,13 @@ jobs:
         run: python main.py
 
       - name: Upload rendered test videos as artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: test-rendered-shorts
           path: |
             temp/*_short.mp4
             temp/*.mp4
-          if-no-files-found: warn
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Commit test DB state (optional)
