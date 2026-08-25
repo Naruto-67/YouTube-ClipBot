@@ -30,7 +30,7 @@ def _build_youtube_service():
         raise RuntimeError("YOUTUBE_CREDENTIALS secret is not set.")
     creds_data = json.loads(raw)
     creds = Credentials(
-        token=None,
+        token=creds_data.get("token"),
         refresh_token=creds_data["refresh_token"],
         token_uri="https://oauth2.googleapis.com/token",
         client_id=creds_data["client_id"],
@@ -41,6 +41,13 @@ def _build_youtube_service():
             "https://www.googleapis.com/auth/yt-analytics.readonly",
         ],
     )
+    import google.auth.transport.requests
+    if not creds.valid:
+        try:
+            creds.refresh(google.auth.transport.requests.Request())
+        except Exception as e:
+            print(f"⚠️ Failed to refresh YouTube credentials: {e}")
+
     return build("youtube", "v3", credentials=creds), creds
 
 
