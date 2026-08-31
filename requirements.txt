@@ -21,7 +21,7 @@ opencv-python-headless>=5.0.0.93     # Face detection for 9:16 smart crop
 PyYAML>=6.0.3
 pytz>=2026.1
 requests>=2.34.2
-pydantic>=2.9.0
+pydantic>=2.13.5
 
 # numpy: intentionally unpinned -- faster-whisper owns the compatible range.
 # Pinning causes ResolutionImpossible when pip resolves the full dependency graph.
