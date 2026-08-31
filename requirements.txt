@@ -18,7 +18,7 @@ edge-tts>=7.2.8                       # Azure neural TTS for voiceover hooks (fr
 opencv-python-headless>=5.0.0.93     # Face detection for 9:16 smart crop
 
 # Config + utilities
-PyYAML>=6.0.2
+PyYAML>=6.0.3
 pytz>=2026.1
 requests>=2.34.0
 pydantic>=2.9.0
